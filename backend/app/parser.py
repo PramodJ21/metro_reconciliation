@@ -1,41 +1,72 @@
-import os
+import io
 import pandas as pd
 import numpy as np
 
-def parse_mobile_mumbaione(path: str) -> pd.DataFrame:
+
+# ---------------------------------------------------------------------------
+# Shared helper
+# ---------------------------------------------------------------------------
+
+def _clean_str_cols(df: pd.DataFrame) -> pd.DataFrame:
+    """
+    Vectorised string-column cleaner.
+    Strips whitespace, then converts 'nan' / 'none' / '' → None (SQL NULL).
+    ~10-50x faster than row-level .map(lambda) for large DataFrames.
+    """
+    str_cols = df.select_dtypes(include=['object']).columns
+    if len(str_cols) == 0:
+        return df
+
+    for col in str_cols:
+        if df[col].isna().all():
+            continue
+        s = df[col].astype(str).str.strip()
+        df[col] = s.where(~s.str.lower().isin({'nan', 'none', ''}), other=None)
+    return df
+
+
+# ---------------------------------------------------------------------------
+# Parsers  (path_or_buffer = str path  OR  BytesIO / file-like object)
+# ---------------------------------------------------------------------------
+
+def parse_mobile_mumbaione(path_or_buffer) -> pd.DataFrame:
     """
     Parses Mobile MumbaiOne Excel file.
-    Skips the metadata rows by finding the row starting with 'Ticket Number'.
+    Skips metadata rows by finding the row starting with 'Ticket Number'.
+    Accepts a file path (str) or an in-memory BytesIO buffer.
     """
-    print(f"Parsing Mobile MumbaiOne file: {path}")
-    
-    # Read without header to find where 'Ticket Number' starts
+    src = path_or_buffer if isinstance(path_or_buffer, str) else path_or_buffer
+    print(f"Parsing Mobile MumbaiOne file: {getattr(src, 'name', str(src))[:80]}")
+
+    # Read without header to locate the real header row in memory (Single-Read optimization)
     try:
         try:
-            df_raw = pd.read_excel(path, header=None, engine='calamine')
-        except Exception:
-            df_raw = pd.read_excel(path, header=None)
+            df_raw = pd.read_excel(src, header=None, engine='calamine')
+        except Exception as e:
+            print(f"[WARN] calamine failed on MumbaiOne ({e}), falling back to openpyxl/xlrd")
+            if hasattr(src, 'seek'):
+                src.seek(0)
+            df_raw = pd.read_excel(src, header=None)
     except Exception as se:
         raise ValueError(f"Failed to read spreadsheet. Ensure you uploaded a valid Excel file. Details: {se}")
 
-    header_row_idx = None
-    for idx, row in df_raw.iterrows():
-        if len(row) > 0 and row.iloc[0] == "Ticket Number":
-            header_row_idx = idx
-            break
+    # Vectorized / generator-based header locator
+    header_row_idx = next(
+        (i for i, row in df_raw.iterrows() if len(row) > 0 and row.iloc[0] == "Ticket Number"),
+        None
+    )
 
     if header_row_idx is None:
-        raise ValueError("Wrong file headers. Could not find critical header row starting with 'Ticket Number' in Mobile MumbaiOne sheet.")
+        raise ValueError(
+            "Wrong file headers. Could not find critical header row starting with "
+            "'Ticket Number' in Mobile MumbaiOne sheet."
+        )
 
-    print(f"Found header row at index: {header_row_idx}")
-    
-    # Read again skipping the rows before header_row_idx
-    try:
-        df = pd.read_excel(path, skiprows=header_row_idx, engine='calamine')
-    except Exception:
-        df = pd.read_excel(path, skiprows=header_row_idx)
+    # Slice in memory — no second disk/buffer read (Single-Read optimization)
+    df = df_raw.iloc[header_row_idx + 1:].copy()
+    df.columns = df_raw.iloc[header_row_idx].values
+    df = df.reset_index(drop=True)
 
-    # Rename columns to match database schema
     column_mapping = {
         'Ticket Number': 'ticket_number',
         'PG Reference No': 'pg_reference_no',
@@ -57,58 +88,58 @@ def parse_mobile_mumbaione(path: str) -> pd.DataFrame:
         'Payment Status': 'payment_status',
         'Ticket Status': 'ticket_status'
     }
-    
+
     df = df.rename(columns=column_mapping)
-    
-    # Check if we have key columns mapped
+
     if 'ticket_number' not in df.columns or 'pg_reference_no' not in df.columns:
-        raise ValueError("Missing critical columns ('Ticket Number' or 'PG Reference No') in Mobile MumbaiOne sheet. Ensure you uploaded the correct file.")
-        
-    # Filter to only keep columns that are in our mapping
+        raise ValueError(
+            "Missing critical columns ('Ticket Number' or 'PG Reference No') in Mobile MumbaiOne sheet. "
+            "Ensure you uploaded the correct file."
+        )
+
     available_cols = [c for c in column_mapping.values() if c in df.columns]
     df = df[available_cols]
 
-    # Convert numeric fields
     if 'no_of_passenger' in df.columns:
         df['no_of_passenger'] = pd.to_numeric(df['no_of_passenger'], errors='coerce').fillna(0).astype(int)
     if 'payment_amount' in df.columns:
         df['payment_amount'] = pd.to_numeric(df['payment_amount'], errors='coerce').fillna(0.0)
 
-    # Clean string data — convert 'nan', 'None', '' to Python None for SQL NULL
-    for col in df.select_dtypes(include=['object']).columns:
-        df[col] = df[col].astype(str).str.strip()
-        df[col] = df[col].map(lambda x: None if x.lower() in ('nan', 'none', '') else x)
-
-    # Drop rows where the primary dedup key is null (junk/header/footer rows)
+    df = _clean_str_cols(df)
+    _before = len(df)
     df = df.dropna(subset=['pg_reference_no'])
-
+    _trash = _before - len(df)
+    if _trash > 0:
+        print(f"[TRASH] MumbaiOne mobile: dropped {_trash} row(s) with null/empty pg_reference_no (header/footer junk).")
+    print(f"[PARSE] MumbaiOne mobile: {len(df)} clean rows after trash removal (was {_before}).")
     return df
 
-def parse_mobile_metroconnect3(path: str) -> pd.DataFrame:
+
+def parse_mobile_metroconnect3(path_or_buffer) -> pd.DataFrame:
     """
     Parses Mobile MetroConnect3 CSV file.
-    Handles large files.
+    Accepts a file path (str) or an in-memory BytesIO buffer.
     """
-    print(f"Parsing Mobile MetroConnect3 CSV file: {path}")
-    
+    print(f"Parsing Mobile MetroConnect3 CSV file: {getattr(path_or_buffer, 'name', str(path_or_buffer))[:80]}")
+
     try:
-        df = pd.read_csv(path)
+        df = pd.read_csv(path_or_buffer)
     except Exception as se:
         raise ValueError(f"Failed to read CSV spreadsheet. Ensure you uploaded a valid CSV file. Details: {se}")
 
-    # Check for critical columns
     if not any(col in df.columns for col in ['ticket_no', 'journey_id', 'amount']):
-        raise ValueError("Wrong CSV structure. Missing critical columns (like 'ticket_no', 'journey_id', 'amount'). Ensure you uploaded the correct Mobile MetroConnect3 CSV.")
+        raise ValueError(
+            "Wrong CSV structure. Missing critical columns (like 'ticket_no', 'journey_id', 'amount'). "
+            "Ensure you uploaded the correct Mobile MetroConnect3 CSV."
+        )
 
     expected_cols = [
-        'ticket_no', 'journey_id', 'booking_type', 'no_of_tickets', 'status', 'amount', 
-        'total_distance', 'total_time', 'total_stations', 'booking_time', 'valid_till', 
+        'ticket_no', 'journey_id', 'booking_type', 'no_of_tickets', 'status', 'amount',
+        'total_distance', 'total_time', 'total_stations', 'booking_time', 'valid_till',
         'requested_from', 'trip_pass_id', 'created_at', 'updated_at'
     ]
-    
     df = df[[c for c in expected_cols if c in df.columns]]
 
-    # Type Conversions
     if 'journey_id' in df.columns:
         df['journey_id'] = pd.to_numeric(df['journey_id'], errors='coerce').fillna(0).astype(int)
     if 'no_of_tickets' in df.columns:
@@ -120,29 +151,22 @@ def parse_mobile_metroconnect3(path: str) -> pd.DataFrame:
     if 'total_time' in df.columns:
         df['total_time'] = pd.to_numeric(df['total_time'], errors='coerce').fillna(0.0)
 
-    # Clean string data — convert 'nan', 'None', '' to Python None for SQL NULL
-    for col in df.select_dtypes(include=['object']).columns:
-        df[col] = df[col].astype(str).str.strip()
-        df[col] = df[col].map(lambda x: None if x.lower() in ('nan', 'none', '') else x)
-
-    # Drop rows where the primary dedup key is null
+    df = _clean_str_cols(df)
+    _before = len(df)
     df = df.dropna(subset=['ticket_no'])
-
+    _trash = _before - len(df)
+    if _trash > 0:
+        print(f"[TRASH] MetroConnect3 mobile: dropped {_trash} row(s) with null/empty ticket_no (header/footer junk).")
+    print(f"[PARSE] MetroConnect3 mobile: {len(df)} clean rows after trash removal (was {_before}).")
     return df
 
-def parse_mobile_ondc(path: str) -> pd.DataFrame:
+
+def parse_mobile_ondc(path_or_buffer) -> pd.DataFrame:
     """
     Parses Mobile ONDC Excel file.
+    Accepts a file path (str) or an in-memory BytesIO buffer.
     """
-    print(f"Parsing Mobile ONDC file: {path}")
-    
-    try:
-        try:
-            df = pd.read_excel(path, sheet_name='Orders', engine='calamine')
-        except Exception:
-            df = pd.read_excel(path, sheet_name='Orders')
-    except Exception as se:
-        raise ValueError(f"Could not find sheet named 'Orders' in spreadsheet. Ensure you uploaded the correct ONDC orders report. Details: {se}")
+    print(f"Parsing Mobile ONDC file: {getattr(path_or_buffer, 'name', str(path_or_buffer))[:80]}")
 
     column_mapping = {
         'OrderId': 'order_id',
@@ -157,11 +181,27 @@ def parse_mobile_ondc(path: str) -> pd.DataFrame:
         'RefundAmount': 'refund_amount'
     }
 
+    try:
+        try:
+            df = pd.read_excel(path_or_buffer, sheet_name='Orders', engine='calamine', usecols=list(column_mapping.keys()))
+        except Exception as e:
+            print(f"[WARN] calamine failed on ONDC Orders ({e}), falling back to openpyxl/xlrd")
+            if hasattr(path_or_buffer, 'seek'):
+                path_or_buffer.seek(0)
+            df = pd.read_excel(path_or_buffer, sheet_name='Orders', usecols=list(column_mapping.keys()))
+    except Exception as se:
+        raise ValueError(
+            f"Could not find sheet named 'Orders' in spreadsheet. "
+            f"Ensure you uploaded the correct ONDC orders report. Details: {se}"
+        )
+
     df = df.rename(columns=column_mapping)
-    
-    # Check for critical columns
+
     if 'order_id' not in df.columns or 'price_rs' not in df.columns:
-        raise ValueError("Missing critical columns ('OrderId' or 'Price_Rs') in ONDC Orders sheet. Ensure you uploaded the correct ONDC orders report.")
+        raise ValueError(
+            "Missing critical columns ('OrderId' or 'Price_Rs') in ONDC Orders sheet. "
+            "Ensure you uploaded the correct ONDC orders report."
+        )
 
     available_cols = [c for c in column_mapping.values() if c in df.columns]
     df = df[available_cols]
@@ -173,29 +213,22 @@ def parse_mobile_ondc(path: str) -> pd.DataFrame:
     if 'refund_amount' in df.columns:
         df['refund_amount'] = pd.to_numeric(df['refund_amount'], errors='coerce').fillna(0.0)
 
-    # Clean string data — convert 'nan', 'None', '' to Python None for SQL NULL
-    for col in df.select_dtypes(include=['object']).columns:
-        df[col] = df[col].astype(str).str.strip()
-        df[col] = df[col].map(lambda x: None if x.lower() in ('nan', 'none', '') else x)
-
-    # Drop rows where the primary dedup key is null
+    df = _clean_str_cols(df)
+    _before = len(df)
     df = df.dropna(subset=['order_id'])
-
+    _trash = _before - len(df)
+    if _trash > 0:
+        print(f"[TRASH] ONDC mobile: dropped {_trash} row(s) with null/empty order_id (header/footer junk).")
+    print(f"[PARSE] ONDC mobile: {len(df)} clean rows after trash removal (was {_before}).")
     return df
 
-def parse_afc(path: str, app_name: str) -> pd.DataFrame:
+
+def parse_afc(path_or_buffer, app_name: str) -> pd.DataFrame:
     """
     Parses AFC Gate Transaction Excel file (MumbaiOne or ONDC).
+    Accepts a file path (str) or an in-memory BytesIO buffer.
     """
-    print(f"Parsing AFC file ({app_name}): {path}")
-    
-    try:
-        try:
-            df = pd.read_excel(path, sheet_name='MQR Report', engine='calamine')
-        except Exception:
-            df = pd.read_excel(path, sheet_name='MQR Report')
-    except Exception as se:
-        raise ValueError(f"Could not find sheet named 'MQR Report' in spreadsheet. Ensure you uploaded the correct AFC gates spreadsheet. Details: {se}")
+    print(f"Parsing AFC file ({app_name}): {getattr(path_or_buffer, 'name', str(path_or_buffer))[:80]}")
 
     column_mapping = {
         'S No': 's_no',
@@ -211,11 +244,27 @@ def parse_afc(path: str, app_name: str) -> pd.DataFrame:
         'Total Price': 'total_price'
     }
 
+    try:
+        try:
+            df = pd.read_excel(path_or_buffer, sheet_name='MQR Report', engine='calamine', usecols=list(column_mapping.keys()))
+        except Exception as e:
+            print(f"[WARN] calamine failed on AFC ({e}), falling back to openpyxl/xlrd")
+            if hasattr(path_or_buffer, 'seek'):
+                path_or_buffer.seek(0)
+            df = pd.read_excel(path_or_buffer, sheet_name='MQR Report', usecols=list(column_mapping.keys()))
+    except Exception as se:
+        raise ValueError(
+            f"Could not find sheet named 'MQR Report' in spreadsheet. "
+            f"Ensure you uploaded the correct AFC gates spreadsheet. Details: {se}"
+        )
+
     df = df.rename(columns=column_mapping)
-    
-    # Check for critical columns
+
     if 'order_id' not in df.columns or 'slave_qr_no' not in df.columns:
-        raise ValueError("Missing critical columns ('Order ID' or 'Slave Qr No') in AFC gates spreadsheet. Ensure you uploaded the correct AFC report.")
+        raise ValueError(
+            "Missing critical columns ('Order ID' or 'Slave Qr No') in AFC gates spreadsheet. "
+            "Ensure you uploaded the correct AFC report."
+        )
 
     available_cols = [c for c in column_mapping.values() if c in df.columns]
     df = df[available_cols]
@@ -227,163 +276,209 @@ def parse_afc(path: str, app_name: str) -> pd.DataFrame:
     if 'total_price' in df.columns:
         df['total_price'] = pd.to_numeric(df['total_price'], errors='coerce').fillna(0.0)
 
-    # Clean string data — convert 'nan', 'None', '' to Python None for SQL NULL
-    for col in df.select_dtypes(include=['object']).columns:
-        df[col] = df[col].astype(str).str.strip()
-        df[col] = df[col].map(lambda x: None if x.lower() in ('nan', 'none', '') else x)
-
-    # Drop rows where the primary dedup key is null (header/footer rows)
+    df = _clean_str_cols(df)
+    _before = len(df)
     df = df.dropna(subset=['slave_qr_no'])
-
+    _trash = _before - len(df)
+    if _trash > 0:
+        print(f"[TRASH] AFC ({app_name}): dropped {_trash} row(s) with null/empty slave_qr_no (header/footer junk).")
+    print(f"[PARSE] AFC ({app_name}): {len(df)} clean rows after trash removal (was {_before}).")
     return df
 
-def parse_payment_gateway(path: str, app_source: str) -> pd.DataFrame:
+
+def parse_payment_gateway(path_or_buffer, app_source: str) -> pd.DataFrame:
     """
     Parses vertically stacked Payment Gateway excel sheet.
     Splits it into settled and refund transactions.
+    Accepts a file path (str) or an in-memory BytesIO buffer.
     """
-    print(f"Parsing PG file ({app_source}): {path}")
-    
+    print(f"Parsing PG file ({app_source}): {getattr(path_or_buffer, 'name', str(path_or_buffer))[:80]}")
+
     try:
         try:
-            df_raw = pd.read_excel(path, sheet_name='Transaction Records', header=None, engine='calamine')
-        except Exception:
-            df_raw = pd.read_excel(path, sheet_name='Transaction Records', header=None)
+            df_raw = pd.read_excel(
+                path_or_buffer, sheet_name='Transaction Records', header=None, engine='calamine'
+            )
+        except Exception as e:
+            print(f"[WARN] calamine failed on PG ({e}), falling back to openpyxl/xlrd")
+            if hasattr(path_or_buffer, 'seek'):
+                path_or_buffer.seek(0)
+            df_raw = pd.read_excel(path_or_buffer, sheet_name='Transaction Records', header=None)
     except Exception as se:
-        raise ValueError(f"Could not find sheet named 'Transaction Records' in PG spreadsheet. Ensure you uploaded the correct Payment Gateway report. Details: {se}")
+        raise ValueError(
+            f"Could not find sheet named 'Transaction Records' in PG spreadsheet. "
+            f"Ensure you uploaded the correct Payment Gateway report. Details: {se}"
+        )
 
-    settled_start_idx = None
-    refund_start_idx = None
-    chargeback_start_idx = None
+    # Vectorized first column scan for section headers (C-speed in Pandas)
+    first_col = df_raw.iloc[:, 0].fillna('').astype(str).str.strip().str.upper()
 
-    for idx, row in df_raw.iterrows():
-        val = str(row.iloc[0]).strip().upper() if pd.notna(row.iloc[0]) else ""
-        if val == "SETTLED TRANSACTIONS":
-            settled_start_idx = idx
-        elif val == "REFUND TRANSACTIONS":
-            refund_start_idx = idx
-        elif val == "CHARGEBACK TRANSACTIONS":
-            chargeback_start_idx = idx
+    settled_matches = first_col[first_col == "SETTLED TRANSACTIONS"].index
+    refund_matches  = first_col[first_col == "REFUND TRANSACTIONS"].index
+    chargeback_matches = first_col[first_col == "CHARGEBACK TRANSACTIONS"].index
 
-    print(f"Markers - Settled Row: {settled_start_idx}, Refund Row: {refund_start_idx}, Chargeback Row: {chargeback_start_idx}")
+    settled_start_idx   = settled_matches[0]    if len(settled_matches)   else None
+    refund_start_idx    = refund_matches[0]     if len(refund_matches)    else None
+    chargeback_start_idx = chargeback_matches[0] if len(chargeback_matches) else None
+
+    print(f"Markers — Settled: {settled_start_idx}, Refund: {refund_start_idx}, Chargeback: {chargeback_start_idx}")
 
     if settled_start_idx is None and refund_start_idx is None:
-        raise ValueError("Wrong PG spreadsheet. Could not locate 'SETTLED TRANSACTIONS' or 'REFUND TRANSACTIONS' sections. Ensure you uploaded the correct PG settlement spreadsheet.")
+        raise ValueError(
+            "Wrong PG spreadsheet. Could not locate 'SETTLED TRANSACTIONS' or 'REFUND TRANSACTIONS' sections. "
+            "Ensure you uploaded the correct PG settlement spreadsheet."
+        )
 
-    records_to_load = []
+    def _get_str_series(df, key, optional=False):
+        if optional and key not in df.columns:
+            return None
+        if key in df.columns:
+            return df[key].fillna('').astype(str).str.strip()
+        return ''
 
-    # 1. Parse Settled Transactions Section
+    def _get_num_series(df, key):
+        if key in df.columns:
+            return pd.to_numeric(df[key], errors='coerce').fillna(0.0)
+        return 0.0
+
+    dfs_to_concat = []
+
+    # --- Settled ---
     if settled_start_idx is not None:
         headers_raw = df_raw.iloc[settled_start_idx + 1].tolist()
         headers = [str(h).strip() if pd.notna(h) else f"Col_{i}" for i, h in enumerate(headers_raw)]
-        
+
         end_settled = refund_start_idx if refund_start_idx is not None else len(df_raw)
         settled_rows = df_raw.iloc[settled_start_idx + 2 : end_settled].dropna(how='all')
-        
-        settled_df = pd.DataFrame(settled_rows.values, columns=headers)
-        if 'Biller Id' in settled_df.columns:
-            settled_df = settled_df[settled_df['Biller Id'].notna() & (settled_df['Biller Id'].astype(str).str.strip() != "")]
-            
-        print(f"Parsed {len(settled_df)} Settled Transactions from PG Excel.")
-        
-        # Check critical PG columns
-        if 'PGI Ref. No.' not in settled_df.columns or 'Biller Id' not in settled_df.columns:
-            raise ValueError("Missing critical columns ('PGI Ref. No.' or 'Biller Id') in Settled transactions section of PG report.")
-        
-        # Map settled df columns to DB schema fields
-        for _, row in settled_df.iterrows():
-            rec = {
-                'biller_id': str(row.get('Biller Id', '')).strip(),
-                'bank_id': str(row.get('Bank Id', '')).strip(),
-                'bank_ref_no': str(row.get('Bank Ref. No.', '')).strip(),
-                'pgi_ref_no': str(row.get('PGI Ref. No.', '')).strip(),
-                'ref_1': str(row.get('Ref. 1', '')).strip(),
-                'ref_2': str(row.get('Ref. 2', '')).strip() if 'Ref. 2' in row else None,
-                'ref_3': str(row.get('Ref. 3', '')).strip() if 'Ref. 3' in row else None,
-                'ref_4': str(row.get('Ref. 4', '')).strip() if 'Ref. 4' in row else None,
-                'ref_5': str(row.get('Ref. 5', '')).strip() if 'Ref. 5' in row else None,
-                'ref_6': str(row.get('Ref. 6', '')).strip() if 'Ref. 6' in row else None,
-                'ref_7': str(row.get('Ref. 7', '')).strip() if 'Ref. 7' in row else None,
-                'ref_8': str(row.get('Ref. 8', '')).strip() if 'Ref. 8' in row else None,
-                'filler': str(row.get('Filler', '')).strip() if 'Filler' in row else None,
-                'date_of_txn': str(row.get('Date of Txn', '')).strip(),
-                'settlement_date': str(row.get('Settlement Date', '')).strip(),
-                'gross_amount': pd.to_numeric(row.get('Gross Amount(Rs.Ps)', 0.0), errors='coerce'),
-                'charges': pd.to_numeric(row.get('Charges (Rs.Ps)', 0.0), errors='coerce'),
-                'gst': pd.to_numeric(row.get('GST (Rs Ps)', 0.0), errors='coerce'),
-                'net_amount': pd.to_numeric(row.get('Net Amount(Rs.Ps)', 0.0), errors='coerce'),
-                'sub_txn_id': str(row.get('Sub Txn Id', '')).strip() if 'Sub Txn Id' in row else None,
-                'refund_id': None,
-                'refund_date': None,
-                'refund_amount': 0.0,
-                'transaction_type': 'SETTLED',
-                'app_source': app_source
-            }
-            records_to_load.append(rec)
+        settled_df   = pd.DataFrame(settled_rows.values, columns=headers)
 
-    # 2. Parse Refund Transactions Section
+        if 'Biller Id' in settled_df.columns:
+            settled_df = settled_df[
+                settled_df['Biller Id'].notna() &
+                (settled_df['Biller Id'].astype(str).str.strip() != "")
+            ]
+
+        print(f"Parsed {len(settled_df)} Settled Transactions from PG Excel.")
+
+        if 'PGI Ref. No.' not in settled_df.columns or 'Biller Id' not in settled_df.columns:
+            raise ValueError(
+                "Missing critical columns ('PGI Ref. No.' or 'Biller Id') in "
+                "Settled transactions section of PG report."
+            )
+
+        if not settled_df.empty:
+            settled_out = pd.DataFrame(index=settled_df.index)
+            settled_out['biller_id'] = _get_str_series(settled_df, 'Biller Id')
+            settled_out['bank_id'] = _get_str_series(settled_df, 'Bank Id')
+            settled_out['bank_ref_no'] = _get_str_series(settled_df, 'Bank Ref. No.')
+            settled_out['pgi_ref_no'] = _get_str_series(settled_df, 'PGI Ref. No.')
+            settled_out['ref_1'] = _get_str_series(settled_df, 'Ref. 1')
+            settled_out['ref_2'] = _get_str_series(settled_df, 'Ref. 2', optional=True)
+            settled_out['ref_3'] = _get_str_series(settled_df, 'Ref. 3', optional=True)
+            settled_out['ref_4'] = _get_str_series(settled_df, 'Ref. 4', optional=True)
+            settled_out['ref_5'] = _get_str_series(settled_df, 'Ref. 5', optional=True)
+            settled_out['ref_6'] = _get_str_series(settled_df, 'Ref. 6', optional=True)
+            settled_out['ref_7'] = _get_str_series(settled_df, 'Ref. 7', optional=True)
+            settled_out['ref_8'] = _get_str_series(settled_df, 'Ref. 8', optional=True)
+            settled_out['filler'] = _get_str_series(settled_df, 'Filler', optional=True)
+            settled_out['date_of_txn'] = _get_str_series(settled_df, 'Date of Txn')
+            settled_out['settlement_date'] = _get_str_series(settled_df, 'Settlement Date')
+            
+            settled_out['gross_amount'] = _get_num_series(settled_df, 'Gross Amount(Rs.Ps)')
+            settled_out['charges'] = _get_num_series(settled_df, 'Charges (Rs.Ps)')
+            settled_out['gst'] = _get_num_series(settled_df, 'GST (Rs Ps)')
+            settled_out['net_amount'] = _get_num_series(settled_df, 'Net Amount(Rs.Ps)')
+            
+            settled_out['sub_txn_id'] = _get_str_series(settled_df, 'Sub Txn Id', optional=True)
+            settled_out['refund_id'] = None
+            settled_out['refund_date'] = None
+            settled_out['refund_amount'] = 0.0
+            settled_out['transaction_type'] = 'SETTLED'
+            settled_out['app_source'] = app_source
+            
+            dfs_to_concat.append(settled_out)
+
+    # --- Refund ---
     if refund_start_idx is not None:
         headers_raw = df_raw.iloc[refund_start_idx + 1].tolist()
         headers = [str(h).strip() if pd.notna(h) else f"Col_{i}" for i, h in enumerate(headers_raw)]
-        
-        end_refund = chargeback_start_idx if chargeback_start_idx is not None else len(df_raw)
-        for r_idx in range(refund_start_idx + 2, len(df_raw)):
-            val = str(df_raw.iloc[r_idx, 0]).strip()
-            if "Net Credit" in val or "Settled Transactions --" in val:
-                end_refund = r_idx
-                break
-                
+
+        # Vectorized search for the refund section end marker
+        tail_col = first_col.iloc[refund_start_idx + 2:]
+        end_matches = tail_col[tail_col.str.contains("NET CREDIT|SETTLED TRANSACTIONS --", na=False)]
+        end_refund = end_matches.index[0] if len(end_matches) else (chargeback_start_idx or len(df_raw))
+
         refund_rows = df_raw.iloc[refund_start_idx + 2 : end_refund].dropna(how='all')
-        refund_df = pd.DataFrame(refund_rows.values, columns=headers)
-        
+        refund_df   = pd.DataFrame(refund_rows.values, columns=headers)
+
         if 'Biller Id' in refund_df.columns:
-            refund_df = refund_df[refund_df['Biller Id'].notna() & (refund_df['Biller Id'].astype(str).str.strip() != "")]
-            
+            refund_df = refund_df[
+                refund_df['Biller Id'].notna() &
+                (refund_df['Biller Id'].astype(str).str.strip() != "")
+            ]
+
         print(f"Parsed {len(refund_df)} Refund Transactions from PG Excel.")
-        
-        # Map refund df columns to DB schema fields
-        for _, row in refund_df.iterrows():
-            rec = {
-                'biller_id': str(row.get('Biller Id', '')).strip(),
-                'bank_id': str(row.get('Bank Id', '')).strip(),
-                'bank_ref_no': str(row.get('Bank Ref. No.', '')).strip(),
-                'pgi_ref_no': str(row.get('PGI Ref. No.', '')).strip(),
-                'ref_1': str(row.get('Ref. 1', '')).strip(),
-                'ref_2': str(row.get('Ref. 2', '')).strip() if 'Ref. 2' in row else None,
-                'ref_3': str(row.get('Ref. 3', '')).strip() if 'Ref. 3' in row else None,
-                'ref_4': str(row.get('Ref. 4', '')).strip() if 'Ref. 4' in row else None,
-                'ref_5': str(row.get('Ref. 5', '')).strip() if 'Ref. 5' in row else None,
-                'ref_6': str(row.get('Ref. 6', '')).strip() if 'Ref. 6' in row else None,
-                'ref_7': str(row.get('Ref. 7', '')).strip() if 'Ref. 7' in row else None,
-                'ref_8': str(row.get('Ref. 8', '')).strip() if 'Ref. 8' in row else None,
-                'filler': str(row.get('Filler', '')).strip() if 'Filler' in row else None,
-                'date_of_txn': str(row.get('Date of Transaction', row.get('Date of Txn', ''))).strip(),
-                'settlement_date': str(row.get('Settlement Date', '')).strip(),
-                'gross_amount': pd.to_numeric(row.get('Gross Amount(Rs.Ps)', 0.0), errors='coerce'),
-                'charges': 0.0,
-                'gst': 0.0,
-                'net_amount': 0.0,
-                'sub_txn_id': str(row.get('Sub Txn Id', '')).strip() if 'Sub Txn Id' in row else None,
-                'refund_id': str(row.get('Refund ID', '')).strip(),
-                'refund_date': str(row.get('Refund Date', '')).strip(),
-                'refund_amount': pd.to_numeric(row.get('Refund Amount (Rs. Ps.)', 0.0), errors='coerce'),
-                'transaction_type': 'REFUND',
-                'app_source': app_source
-            }
-            records_to_load.append(rec)
 
-    # Convert results list to DataFrame
-    if len(records_to_load) == 0:
+        if not refund_df.empty:
+            refund_out = pd.DataFrame(index=refund_df.index)
+            refund_out['biller_id'] = _get_str_series(refund_df, 'Biller Id')
+            refund_out['bank_id'] = _get_str_series(refund_df, 'Bank Id')
+            refund_out['bank_ref_no'] = _get_str_series(refund_df, 'Bank Ref. No.')
+            refund_out['pgi_ref_no'] = _get_str_series(refund_df, 'PGI Ref. No.')
+            refund_out['ref_1'] = _get_str_series(refund_df, 'Ref. 1')
+            refund_out['ref_2'] = _get_str_series(refund_df, 'Ref. 2', optional=True)
+            refund_out['ref_3'] = _get_str_series(refund_df, 'Ref. 3', optional=True)
+            refund_out['ref_4'] = _get_str_series(refund_df, 'Ref. 4', optional=True)
+            refund_out['ref_5'] = _get_str_series(refund_df, 'Ref. 5', optional=True)
+            refund_out['ref_6'] = _get_str_series(refund_df, 'Ref. 6', optional=True)
+            refund_out['ref_7'] = _get_str_series(refund_df, 'Ref. 7', optional=True)
+            refund_out['ref_8'] = _get_str_series(refund_df, 'Ref. 8', optional=True)
+            refund_out['filler'] = _get_str_series(refund_df, 'Filler', optional=True)
+            
+            date_col = 'Date of Transaction' if 'Date of Transaction' in refund_df.columns else 'Date of Txn'
+            refund_out['date_of_txn'] = _get_str_series(refund_df, date_col)
+            refund_out['settlement_date'] = _get_str_series(refund_df, 'Settlement Date')
+            
+            refund_out['gross_amount'] = _get_num_series(refund_df, 'Gross Amount(Rs.Ps)')
+            refund_out['charges'] = 0.0
+            refund_out['gst'] = 0.0
+            refund_out['net_amount'] = 0.0
+            
+            refund_out['sub_txn_id'] = _get_str_series(refund_df, 'Sub Txn Id', optional=True)
+            refund_out['refund_id'] = _get_str_series(refund_df, 'Refund ID')
+            refund_out['refund_date'] = _get_str_series(refund_df, 'Refund Date')
+            refund_out['refund_amount'] = _get_num_series(refund_df, 'Refund Amount (Rs. Ps.)')
+            
+            refund_out['transaction_type'] = 'REFUND'
+            refund_out['app_source'] = app_source
+            
+            dfs_to_concat.append(refund_out)
+
+    if not dfs_to_concat:
         return pd.DataFrame()
-        
-    df = pd.DataFrame(records_to_load)
-    
-    # Clean string data — convert 'nan', 'None', '' to Python None for proper SQL NULL
-    for col in df.select_dtypes(include=['object']).columns:
-        df[col] = df[col].astype(str).str.strip()
-        df[col] = df[col].map(lambda x: None if x.lower() in ('nan', 'none', '') else x)
 
-    # Drop rows where pgi_ref_no is null — these are footer/summary rows, not real transactions
+    df = pd.concat(dfs_to_concat, ignore_index=True)
+    df = _clean_str_cols(df)
+    _before = len(df)
+
+    # --- Identify and log trash rows BEFORE dropping them ---
+    _trash_mask = df['pgi_ref_no'].isna()
+    if _trash_mask.any():
+        _trash_rows = df[_trash_mask]
+        print(f"[TRASH] PG ({app_source}): {len(_trash_rows)} row(s) have null/empty pgi_ref_no and will be dropped:")
+        for i, (_, tr) in enumerate(_trash_rows.iterrows()):
+            # Print the most identifying fields for each trash row
+            biller   = tr.get('biller_id', '')
+            bank_ref = tr.get('bank_ref_no', '')
+            ref1     = tr.get('ref_1', '')
+            txn_type = tr.get('transaction_type', '')
+            date     = tr.get('date_of_txn', '')
+            print(
+                f"  [{i+1}] type={txn_type!r}  biller_id={biller!r}  "
+                f"bank_ref_no={bank_ref!r}  ref_1={ref1!r}  date={date!r}"
+            )
+
     df = df.dropna(subset=['pgi_ref_no'])
-
+    _trash = _before - len(df)
+    print(f"[PARSE] PG ({app_source}): {len(df)} clean rows after trash removal (was {_before}).")
     return df

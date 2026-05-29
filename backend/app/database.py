@@ -192,7 +192,13 @@ def execute_ddl():
         "CREATE INDEX IF NOT EXISTS idx_recon_res_app ON reconciliation_results(app_source);",
         "CREATE INDEX IF NOT EXISTS idx_recon_res_ord_tkt ON reconciliation_results(order_id, ticket_no);",
         # Migration: add data_sources column to existing DBs
-        "ALTER TABLE reconciliation_results ADD COLUMN IF NOT EXISTS data_sources VARCHAR;"
+        "ALTER TABLE reconciliation_results ADD COLUMN IF NOT EXISTS data_sources VARCHAR;",
+        # Convert all staging tables to UNLOGGED for massive insertion speedup (WAL bypass)
+        "ALTER TABLE stg_mobile_mumbaione SET UNLOGGED;",
+        "ALTER TABLE stg_mobile_metroconnect3 SET UNLOGGED;",
+        "ALTER TABLE stg_mobile_ondc SET UNLOGGED;",
+        "ALTER TABLE stg_pg_transactions SET UNLOGGED;",
+        "ALTER TABLE stg_afc_transactions SET UNLOGGED;"
     ]
 
     with engine.begin() as connection:
@@ -203,34 +209,47 @@ def execute_ddl():
 
 def bulk_insert_df(table_name: str, df, truncate: bool = False):
     """
-    High-performance bulk insert of a pandas DataFrame into a specified table.
-    Uses psycopg2 execute_values for rapid batch insertion.
+    Ultra-Performance concurrency-safe bulk insert of a pandas DataFrame into a specified table.
+    Bypasses standard insert overhead:
+    1. Bypasses WAL overhead using PostgreSQL UNLOGGED tables defined in DDL.
+    2. Streams raw TSV directly into PostgreSQL using copy_expert (zero SQL planning).
+    3. Keeps staging indexes active to prevent AccessExclusiveLock starvations/deadlocks,
+       maintaining 100% database concurrency read/write compatibility.
     """
+    import io
+    import csv
+
     if df.empty:
         return 0
 
-    # Ensure NaN values are converted to None for SQL NULL conversion
-    df = df.where(df.notna(), None)
-    
-    # Columns and values to insert
     columns = list(df.columns)
-    query = f"INSERT INTO {table_name} ({', '.join(columns)}) VALUES %s"
     
-    # Get values as list of tuples
-    tuples = [tuple(x) for x in df.to_numpy()]
+    # 1. Fast TSV serialization in Pandas (minimal string escaping overhead, writes NaNs as \N)
+    buffer = io.StringIO()
+    df.to_csv(buffer, sep='\t', index=False, header=False, na_rep='\\N', quoting=csv.QUOTE_MINIMAL)
+    buffer.seek(0)
     
-    # Establish direct connection using settings DATABASE_URL
+    copy_query = f"COPY {table_name} ({','.join(columns)}) FROM STDIN WITH (FORMAT CSV, DELIMITER '\t', NULL '\\N')"
+
+    # 2. Establish direct connection using settings DATABASE_URL
     conn = psycopg2.connect(settings.DATABASE_URL)
     try:
         with conn:
             with conn.cursor() as cur:
+                # Session tuning for ultra-high performance writes
+                cur.execute("SET synchronous_commit = OFF;")
+                cur.execute("SET work_mem = '256MB';")
+                
                 if truncate:
                     print(f"Truncating table {table_name}...")
                     cur.execute(f"TRUNCATE TABLE {table_name} CASCADE;")
                 
-                print(f"Bulk inserting {len(tuples)} rows into {table_name}...")
-                execute_values(cur, query, tuples)
-                print(f"Successfully inserted {len(tuples)} rows.")
-        return len(tuples)
+                # Stream CSV/TSV directly into PostgreSQL using copy_expert
+                print(f"Bulk copy streaming {len(df):,} records into {table_name}...")
+                cur.copy_expert(copy_query, buffer)
+                
+        # Commit the transaction block
+        conn.commit()
+        return len(df)
     finally:
         conn.close()

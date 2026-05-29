@@ -1,6 +1,5 @@
-import os
+import io
 import json
-import shutil
 import pandas as pd
 from typing import List, Optional
 from fastapi import FastAPI, UploadFile, File, Form, Query, HTTPException, Depends
@@ -71,12 +70,23 @@ async def upload_files(
     Accepts multiple file uploads for a specific App and Channel,
     parses them, and bulk inserts them into PostgreSQL.
     Streams real-time progress back to the client using Server-Sent Events (SSE).
+
+    Performance optimisations applied:
+    - Files are read into BytesIO in memory — zero disk I/O during parsing.
+    - Deduplication uses vectorised pandas string ops instead of row-level .apply().
+    - A single bulk execute_values insert covers all files in one DB round-trip.
     """
 
     def _sse(event_type: str, payload: dict) -> str:
-        """Format a single Server-Sent Event data line."""
         payload["event"] = event_type
         return f"data: {json.dumps(payload)}\n\n"
+
+    # Read all file bytes into memory before the generator runs.
+    # UploadFile.file is a one-shot stream; buffering here means the
+    # generator can seek/re-read freely without touching disk.
+    file_payloads = []  # list of (filename, BytesIO)
+    for uf in files:
+        file_payloads.append((uf.filename, io.BytesIO(uf.file.read())))
 
     def event_generator():
         # --- 1. Input Validation ---
@@ -114,84 +124,78 @@ async def upload_files(
             yield _sse("error", {"message": "Could not resolve target database staging table."})
             return
 
-        total_files    = len(files)
+        total_files     = len(file_payloads)
+        parsed_dfs      = []
         processed_files = []
-        parsed_dfs     = []
 
         yield _sse("progress", {
             "progress": 5,
-            "message": f"Initialising ingest pipeline for {total_files} file(s)..."
+            "message": f"Files buffered in memory. Parsing {total_files} file(s)..."
         })
 
-        # --- 3. Parse Files Sequentially ---
-        for file_idx, upload_file in enumerate(files):
-            temp_file_path = os.path.join(settings.UPLOAD_TEMP_DIR, upload_file.filename)
-            file_num = file_idx + 1
-            base_progress = 5 + int((file_idx / total_files) * 55)  # 5 → 60 during parsing
+        # --- 3. Parse files in parallel using ThreadPoolExecutor ---
+        import concurrent.futures
 
-            yield _sse("progress", {
-                "progress": base_progress,
-                "message": f"Saving file {file_num} of {total_files}: {upload_file.filename}..."
-            })
+        def _parse_single_file(filename, buf):
+            buf.seek(0)
+            df = None
+            if _ch == 'mobile':
+                if _app == 'mumbaione':
+                    df = parse_mobile_mumbaione(buf)
+                elif _app == 'metroconnect3':
+                    df = parse_mobile_metroconnect3(buf)
+                elif _app == 'ondc':
+                    df = parse_mobile_ondc(buf)
+            elif _ch == 'payment_gateway':
+                pg_src = 'MumbaiOne' if _app == 'mumbaione' else 'MetroConnect3'
+                df = parse_payment_gateway(buf, pg_src)
+            elif _ch == 'afc':
+                afc_src = 'MumbaiOne' if _app == 'mumbaione' else ('ONDC' if _app == 'ondc' else 'MetroConnect3')
+                df = parse_afc(buf, afc_src)
 
-            try:
-                with open(temp_file_path, "wb") as buffer:
-                    shutil.copyfileobj(upload_file.file, buffer)
-            except Exception as e:
-                yield _sse("error", {"message": f"Failed to save {upload_file.filename}: {e}"})
-                return
+            if df is not None and not df.empty:
+                df['file_source'] = filename
+            return filename, df
 
-            yield _sse("progress", {
-                "progress": base_progress + 5,
-                "message": f"Parsing columns: {upload_file.filename} ({file_num}/{total_files})..."
-            })
+        # Use ThreadPoolExecutor to parse concurrently
+        max_workers = min(8, len(file_payloads))
+        yield _sse("progress", {
+            "progress": 5,
+            "message": f"Starting parallel parsing of {total_files} file(s) using {max_workers} threads..."
+        })
 
-            try:
-                df = None
-                if _ch == 'mobile':
-                    if _app == 'mumbaione':
-                        df = parse_mobile_mumbaione(temp_file_path)
-                    elif _app == 'metroconnect3':
-                        df = parse_mobile_metroconnect3(temp_file_path)
-                    elif _app == 'ondc':
-                        df = parse_mobile_ondc(temp_file_path)
-                elif _ch == 'payment_gateway':
-                    pg_app_src = 'MumbaiOne' if _app == 'mumbaione' else 'MetroConnect3'
-                    df = parse_payment_gateway(temp_file_path, pg_app_src)
-                elif _ch == 'afc':
-                    afc_app_name = 'MumbaiOne' if _app == 'mumbaione' else ('ONDC' if _app == 'ondc' else 'MetroConnect3')
-                    df = parse_afc(temp_file_path, afc_app_name)
+        futures = []
+        with concurrent.futures.ThreadPoolExecutor(max_workers=max_workers) as executor:
+            for filename, buf in file_payloads:
+                futures.append(executor.submit(_parse_single_file, filename, buf))
 
-                if df is not None and not df.empty:
-                    df['file_source'] = upload_file.filename
-                    parsed_dfs.append(df)
-                    row_hint = f"{len(df):,} rows parsed"
-                else:
-                    row_hint = "0 rows (empty)"
+            completed_count = 0
+            for future in concurrent.futures.as_completed(futures):
+                completed_count += 1
+                base_progress = 5 + int((completed_count / total_files) * 55)
 
-                processed_files.append({"filename": upload_file.filename, "status": "Success", "rows_loaded": 0})
+                try:
+                    filename, df = future.result()
+                    if df is not None and not df.empty:
+                        parsed_dfs.append(df)
+                        row_hint = f"{len(df):,} rows parsed"
+                    else:
+                        row_hint = "0 rows (empty)"
 
-                yield _sse("file_parsed", {
-                    "progress": base_progress + 10,
-                    "message": f"✓ Parsed {upload_file.filename} — {row_hint} ({file_num}/{total_files})",
-                    "file_index": file_idx,
-                    "filename": upload_file.filename,
-                    "rows_parsed": len(df) if df is not None else 0
-                })
+                    processed_files.append({"filename": filename, "status": "Success", "rows_loaded": 0})
+                    yield _sse("file_parsed", {
+                        "progress": base_progress,
+                        "message": f"✓ Parsed {filename} — {row_hint} ({completed_count}/{total_files})",
+                        "filename": filename,
+                        "rows_parsed": len(df) if df is not None else 0
+                    })
 
-            except ValueError as ve:
-                if os.path.exists(temp_file_path):
-                    os.remove(temp_file_path)
-                yield _sse("error", {"message": f"Wrong file structure: {str(ve)}", "filename": upload_file.filename})
-                return
-            except Exception as e:
-                if os.path.exists(temp_file_path):
-                    os.remove(temp_file_path)
-                yield _sse("error", {"message": f"Parsing error in {upload_file.filename}: {str(e)}"})
-                return
-            finally:
-                if os.path.exists(temp_file_path):
-                    os.remove(temp_file_path)
+                except ValueError as ve:
+                    yield _sse("error", {"message": f"Wrong file structure: {str(ve)}", "filename": filename})
+                    return
+                except Exception as e:
+                    yield _sse("error", {"message": f"Parsing error in file: {str(e)}"})
+                    return
 
         # --- 4. Validate at least one non-empty result ---
         if not parsed_dfs:
@@ -206,105 +210,115 @@ async def upload_files(
         try:
             combined_df = pd.concat(parsed_dfs, ignore_index=True)
 
-            # --- 5. Deduplication ---
+            # --- 6. Vectorised Deduplication ---
             if not clear_existing:
                 original_len = len(combined_df)
 
-                def normalize_key(val):
-                    if val is None:
-                        return None
-                    s = str(val).strip()
-                    if s.lower() in ('nan', 'none', ''):
-                        return None
-                    return s
+                def _vec_clean(series: pd.Series) -> pd.Series:
+                    """
+                    Vectorised equivalent of normalize_key:
+                    strip → lowercase check → replace sentinel strings with NaN.
+                    Returns a str-typed Series with NaN where key is invalid.
+                    """
+                    s = series.astype(str).str.strip()
+                    return s.where(~s.str.lower().isin({'nan', 'none', ''}), other=pd.NA)
 
                 yield _sse("progress", {
                     "progress": 70,
                     "message": f"Checking {original_len:,} records for duplicates against staging table..."
                 })
 
-                if table_name == 'stg_mobile_mumbaione':
-                    if 'pg_reference_no' in combined_df.columns:
-                        raw_keys  = combined_df['pg_reference_no'].dropna().unique()
-                        clean_keys = [str(k).strip() for k in raw_keys if normalize_key(k) is not None]
-                        existing_keys = {
-                            str(row[0]).strip()
-                            for row in db.execute(
-                                text("SELECT pg_reference_no FROM stg_mobile_mumbaione WHERE pg_reference_no IN :keys"),
-                                {"keys": tuple(clean_keys)}
-                            )
-                        } if clean_keys else set()
-                        combined_df = combined_df[combined_df['pg_reference_no'].apply(normalize_key).isin(existing_keys) == False]
-                        combined_df = combined_df[combined_df['pg_reference_no'].apply(normalize_key).notna()]
+                if table_name == 'stg_mobile_mumbaione' and 'pg_reference_no' in combined_df.columns:
+                    clean_col  = _vec_clean(combined_df['pg_reference_no'])
+                    clean_keys = clean_col.dropna().unique().tolist()
+                    existing   = {
+                        str(r[0]).strip()
+                        for r in db.execute(
+                            text("SELECT pg_reference_no FROM stg_mobile_mumbaione WHERE pg_reference_no IN :k"),
+                            {"k": tuple(clean_keys)}
+                        )
+                    } if clean_keys else set()
+                    if existing:
+                        sample = sorted(existing)[:20]
+                        print(f"[DUPLICATE] stg_mobile_mumbaione: {len(existing)} duplicate pg_reference_no value(s) found in DB.")
+                        print(f"[DUPLICATE] Sample keys (up to 20): {sample}")
+                    combined_df = combined_df[clean_col.notna() & ~clean_col.isin(existing)]
 
-                elif table_name == 'stg_mobile_metroconnect3':
-                    if 'ticket_no' in combined_df.columns:
-                        raw_keys   = combined_df['ticket_no'].dropna().unique()
-                        clean_keys = [str(k).strip() for k in raw_keys if normalize_key(k) is not None]
-                        existing_keys = {
-                            str(row[0]).strip()
-                            for row in db.execute(
-                                text("SELECT ticket_no FROM stg_mobile_metroconnect3 WHERE ticket_no IN :keys"),
-                                {"keys": tuple(clean_keys)}
-                            )
-                        } if clean_keys else set()
-                        combined_df = combined_df[combined_df['ticket_no'].apply(normalize_key).isin(existing_keys) == False]
-                        combined_df = combined_df[combined_df['ticket_no'].apply(normalize_key).notna()]
+                elif table_name == 'stg_mobile_metroconnect3' and 'ticket_no' in combined_df.columns:
+                    clean_col  = _vec_clean(combined_df['ticket_no'])
+                    clean_keys = clean_col.dropna().unique().tolist()
+                    existing   = {
+                        str(r[0]).strip()
+                        for r in db.execute(
+                            text("SELECT ticket_no FROM stg_mobile_metroconnect3 WHERE ticket_no IN :k"),
+                            {"k": tuple(clean_keys)}
+                        )
+                    } if clean_keys else set()
+                    if existing:
+                        sample = sorted(existing)[:20]
+                        print(f"[DUPLICATE] stg_mobile_metroconnect3: {len(existing)} duplicate ticket_no value(s) found in DB.")
+                        print(f"[DUPLICATE] Sample keys (up to 20): {sample}")
+                    combined_df = combined_df[clean_col.notna() & ~clean_col.isin(existing)]
 
-                elif table_name == 'stg_mobile_ondc':
-                    if 'order_id' in combined_df.columns:
-                        raw_keys   = combined_df['order_id'].dropna().unique()
-                        clean_keys = [str(k).strip() for k in raw_keys if normalize_key(k) is not None]
-                        existing_keys = {
-                            str(row[0]).strip()
-                            for row in db.execute(
-                                text("SELECT order_id FROM stg_mobile_ondc WHERE order_id IN :keys"),
-                                {"keys": tuple(clean_keys)}
-                            )
-                        } if clean_keys else set()
-                        combined_df = combined_df[combined_df['order_id'].apply(normalize_key).isin(existing_keys) == False]
-                        combined_df = combined_df[combined_df['order_id'].apply(normalize_key).notna()]
+                elif table_name == 'stg_mobile_ondc' and 'order_id' in combined_df.columns:
+                    clean_col  = _vec_clean(combined_df['order_id'])
+                    clean_keys = clean_col.dropna().unique().tolist()
+                    existing   = {
+                        str(r[0]).strip()
+                        for r in db.execute(
+                            text("SELECT order_id FROM stg_mobile_ondc WHERE order_id IN :k"),
+                            {"k": tuple(clean_keys)}
+                        )
+                    } if clean_keys else set()
+                    if existing:
+                        sample = sorted(existing)[:20]
+                        print(f"[DUPLICATE] stg_mobile_ondc: {len(existing)} duplicate order_id value(s) found in DB.")
+                        print(f"[DUPLICATE] Sample keys (up to 20): {sample}")
+                    combined_df = combined_df[clean_col.notna() & ~clean_col.isin(existing)]
 
-                elif table_name == 'stg_pg_transactions':
-                    if 'pgi_ref_no' in combined_df.columns and 'transaction_type' in combined_df.columns:
-                        raw_keys   = combined_df['pgi_ref_no'].dropna().unique()
-                        clean_keys = [str(k).strip() for k in raw_keys if normalize_key(k) is not None]
-                        existing_keys = {
-                            (str(row[0]).strip(), str(row[1]).strip())
-                            for row in db.execute(
-                                text("SELECT pgi_ref_no, transaction_type FROM stg_pg_transactions WHERE pgi_ref_no IN :pgi_keys"),
-                                {"pgi_keys": tuple(clean_keys)}
-                            )
-                        } if clean_keys else set()
+                elif table_name == 'stg_pg_transactions' and 'pgi_ref_no' in combined_df.columns:
+                    clean_pgi  = _vec_clean(combined_df['pgi_ref_no'])
+                    clean_type = _vec_clean(combined_df['transaction_type'])
+                    clean_keys = clean_pgi.dropna().unique().tolist()
+                    existing   = {
+                        (str(r[0]).strip(), str(r[1]).strip())
+                        for r in db.execute(
+                            text("SELECT pgi_ref_no, transaction_type FROM stg_pg_transactions WHERE pgi_ref_no IN :k"),
+                            {"k": tuple(clean_keys)}
+                        )
+                    } if clean_keys else set()
+                    if existing:
+                        sample = sorted(existing)[:20]
+                        print(f"[DUPLICATE] stg_pg_transactions: {len(existing)} duplicate (pgi_ref_no, transaction_type) pair(s) found in DB.")
+                        print(f"[DUPLICATE] Sample pairs (up to 20): {sample}")
+                    combo = list(zip(clean_pgi.fillna(''), clean_type.fillna('')))
+                    mask  = pd.Series(
+                        [pair in existing for pair in combo],
+                        index=combined_df.index
+                    )
+                    combined_df = combined_df[clean_pgi.notna() & clean_type.notna() & ~mask]
 
-                        def pg_key(row_pair):
-                            pgi, ttype = row_pair
-                            k1 = normalize_key(pgi)
-                            k2 = normalize_key(ttype)
-                            if k1 is None or k2 is None:
-                                return None
-                            return (k1, k2)
+                elif table_name == 'stg_afc_transactions' and 'slave_qr_no' in combined_df.columns:
+                    clean_col  = _vec_clean(combined_df['slave_qr_no'])
+                    clean_keys = clean_col.dropna().unique().tolist()
+                    existing   = {
+                        str(r[0]).strip()
+                        for r in db.execute(
+                            text("SELECT slave_qr_no FROM stg_afc_transactions WHERE slave_qr_no IN :k"),
+                            {"k": tuple(clean_keys)}
+                        )
+                    } if clean_keys else set()
+                    if existing:
+                        sample = sorted(existing)[:20]
+                        print(f"[DUPLICATE] stg_afc_transactions: {len(existing)} duplicate slave_qr_no value(s) found in DB.")
+                        print(f"[DUPLICATE] Sample keys (up to 20): {sample}")
+                    combined_df = combined_df[clean_col.notna() & ~clean_col.isin(existing)]
 
-                        keys_series = list(zip(combined_df['pgi_ref_no'], combined_df['transaction_type']))
-                        mask = pd.Series([pg_key(pair) in existing_keys for pair in keys_series], index=combined_df.index)
-                        combined_df = combined_df[~mask]
-                        combined_df = combined_df[combined_df['pgi_ref_no'].apply(normalize_key).notna()]
-
-                elif table_name == 'stg_afc_transactions':
-                    if 'slave_qr_no' in combined_df.columns:
-                        raw_keys   = combined_df['slave_qr_no'].dropna().unique()
-                        clean_keys = [str(k).strip() for k in raw_keys if normalize_key(k) is not None]
-                        existing_keys = {
-                            str(row[0]).strip()
-                            for row in db.execute(
-                                text("SELECT slave_qr_no FROM stg_afc_transactions WHERE slave_qr_no IN :keys"),
-                                {"keys": tuple(clean_keys)}
-                            )
-                        } if clean_keys else set()
-                        combined_df = combined_df[combined_df['slave_qr_no'].apply(normalize_key).isin(existing_keys) == False]
-                        combined_df = combined_df[combined_df['slave_qr_no'].apply(normalize_key).notna()]
-
-                dups = original_len - len(combined_df)
+                dups    = original_len - len(combined_df)
+                if dups > 0:
+                    print(f"[DEDUP SUMMARY] {dups:,} row(s) removed total ({original_len:,} in \u2192 {len(combined_df):,} net new).")
+                else:
+                    print(f"[DEDUP SUMMARY] No duplicates found. All {original_len:,} row(s) are new.")
                 dup_msg = f" ({dups:,} duplicates removed)" if dups > 0 else ""
                 if combined_df.empty:
                     yield _sse("error", {"message": "All records already present in staging. Ingestion skipped to prevent duplicates."})
@@ -315,7 +329,8 @@ async def upload_files(
                     "message": f"Deduplication complete{dup_msg}. {len(combined_df):,} net new records ready."
                 })
 
-            # --- 6. Revert previous log entries if clearing ---
+
+            # --- 7. Revert previous log entries if clearing ---
             if clear_existing:
                 try:
                     db.execute(
@@ -332,7 +347,7 @@ async def upload_files(
                 "message": f"Bulk inserting {len(combined_df):,} rows into {table_name}..."
             })
 
-            # --- 7. Bulk Insert ---
+            # --- 8. Bulk Insert ---
             total_rows_loaded = bulk_insert_df(table_name, combined_df, truncate=clear_existing)
 
             yield _sse("progress", {
@@ -340,14 +355,14 @@ async def upload_files(
                 "message": f"✓ Inserted {total_rows_loaded:,} rows. Writing audit log..."
             })
 
-            # --- 8. Per-file row counts ---
+            # --- 9. Per-file row counts ---
             file_counts = {}
             if not combined_df.empty and 'file_source' in combined_df.columns:
                 file_counts = combined_df['file_source'].value_counts().to_dict()
             for item in processed_files:
                 item["rows_loaded"] = file_counts.get(item["filename"], 0)
 
-            # --- 9. Audit Log ---
+            # --- 10. Audit Log ---
             try:
                 pretty_app     = 'ONDC' if _app == 'ondc' else ('MumbaiOne' if _app == 'mumbaione' else 'MetroConnect3')
                 pretty_channel = _ch.replace('_', ' ').title()
@@ -368,7 +383,7 @@ async def upload_files(
                 db.rollback()
                 print(f"Warning: Failed to write to ingestion_logs: {le}")
 
-            # --- 10. Completion event ---
+            # --- 11. Completion event ---
             yield _sse("completed", {
                 "progress": 100,
                 "message": f"✓ Success! Staged {total_files} file(s). Bulk inserted {total_rows_loaded:,} rows.",

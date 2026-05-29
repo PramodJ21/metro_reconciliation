@@ -163,7 +163,7 @@ const ResultsBrowser = ({ refreshTrigger }) => {
 
   const [pageInputVal, setPageInputVal] = useState('1');
   const [loading, setLoading] = useState(false);
-  const [showLegend, setShowLegend] = useState(true);
+  const [showLegend, setShowLegend] = useState(false);
   const [showFiltersPanel, setShowFiltersPanel] = useState(false);
 
   // Synchronize pending state whenever the popover opens
@@ -353,16 +353,17 @@ const ResultsBrowser = ({ refreshTrigger }) => {
   };
 
   return (
-    <div className="widget-card">
+    <>
+      <div className="widget-card">
       <div className="widget-card-title" style={{ margin: 0, padding: 0 }}>
         <span>Reconciliation Ledger</span>
         <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem' }}>
           <button
             type="button"
-            onClick={() => setShowLegend(v => !v)}
+            onClick={() => setShowLegend(true)}
             style={{
-              background: showLegend ? 'rgba(255,255,255,0.08)' : 'transparent',
-              border: '1px solid rgba(255,255,255,0.15)',
+              background: 'transparent',
+              border: '1px solid rgba(0, 0, 0, 0.15)',
               color: 'var(--text-muted)',
               fontSize: '0.75rem',
               padding: '0.25rem 0.7rem',
@@ -371,65 +372,29 @@ const ResultsBrowser = ({ refreshTrigger }) => {
               fontWeight: 600,
               transition: 'all 0.15s ease',
             }}
+            onMouseOver={e => e.target.style.background = 'rgba(0,0,0,0.05)'}
+            onMouseOut={e => e.target.style.background = 'transparent'}
           >
-            {showLegend ? 'Hide' : 'Show'} Legend
+            ⓘ View Legend
           </button>
           <span style={{ fontSize: '0.9rem' }}>☵</span>
         </div>
       </div>
 
-      {/* Source presence key */}
-      <div style={{
-        display: 'flex',
-        gap: '0.5rem',
-        alignItems: 'center',
-        marginTop: '1rem',
-        padding: '0.5rem 0.75rem',
-        background: 'rgba(255,255,255,0.03)',
-        borderRadius: '0px',
-        border: '1px solid rgba(255,255,255,0.06)',
-        flexWrap: 'wrap',
-      }}>
-        <span style={{ fontSize: '0.7rem', color: 'var(--text-muted)', fontWeight: 600, marginRight: '0.25rem' }}>
-          SOURCE KEY:
-        </span>
-        {ALL_SOURCES.map(src => {
-          const s = SOURCE_STYLES[src];
-          return (
-            <span key={src} style={{
-              fontSize: '0.7rem',
-              fontWeight: 700,
-              padding: '0.1rem 0.5rem',
-              borderRadius: '0px',
-              border: `1px solid ${s.border}`,
-              background: s.bg,
-              color: s.color,
-              fontFamily: 'monospace',
-            }}>
-              {src}
-            </span>
-          );
-        })}
-        <span style={{ fontSize: '0.7rem', color: 'var(--text-muted)', marginLeft: '0.5rem' }}>
-          Strikethrough = not present in that source
-        </span>
-      </div>
-
-      {/* Status legend */}
-      {showLegend && (
-        <div style={{ marginTop: '1rem' }}>
-          <div style={{ fontSize: '0.72rem', fontWeight: 700, color: 'var(--text-muted)', marginBottom: '0.6rem', letterSpacing: '0.08em', textTransform: 'uppercase' }}>
-            Status Definitions
-          </div>
-          <StatusLegendPanel />
-        </div>
-      )}
-
       {/* Filters Toolbar and Popover Anchor */}
-      <div className="filters-row" style={{ marginTop: '0.75rem', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-        <div>
+      <div className="filters-row" style={{ marginTop: '1rem', display: 'flex', justifyContent: 'space-between', alignItems: 'center', borderBottom: '1px solid var(--color-border)', paddingBottom: '0.75rem' }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: '1rem', flexWrap: 'wrap' }}>
           <span style={{ fontSize: '0.75rem', color: 'var(--text-muted)', fontWeight: 700, letterSpacing: '0.05em', textTransform: 'uppercase' }}>
             Ledger View
+          </span>
+          <span style={{ fontSize: '0.72rem', color: 'var(--text-muted)', display: 'flex', alignItems: 'center', gap: '0.45rem', flexWrap: 'wrap' }}>
+            <span style={{ opacity: 0.5 }}>•</span>
+            <b>Sources:</b>
+            <span style={{ fontFamily: 'monospace', fontWeight: 700, color: '#0058be', background: '#d8e2ff', border: '1px solid #adc6ff', padding: '0.05rem 0.35rem', fontSize: '0.68rem' }}>App</span>
+            <span style={{ fontFamily: 'monospace', fontWeight: 700, color: '#171c1f', background: '#dfe3e7', border: '1px solid #c6c6cd', padding: '0.05rem 0.35rem', fontSize: '0.68rem' }}>PG</span>
+            <span style={{ fontFamily: 'monospace', fontWeight: 700, color: '#047857', background: '#d1fae5', border: '1px solid #10b981', padding: '0.05rem 0.35rem', fontSize: '0.68rem' }}>AFC</span>
+            <span style={{ opacity: 0.5 }}>|</span>
+            <span style={{ textDecoration: 'line-through', opacity: 0.5 }}>Strikethrough</span> = Missing in Source
           </span>
         </div>
 
@@ -790,8 +755,12 @@ const ResultsBrowser = ({ refreshTrigger }) => {
                 <th style={{ padding: '1rem', borderRight: '1px solid #c6c6cd', fontWeight: 500 }}>PG Ref No</th>
                 <th style={{ padding: '1rem', borderRight: '1px solid #c6c6cd', fontWeight: 500, textAlign: 'right' }}>Amount</th>
                 <th style={{ padding: '1rem', borderRight: '1px solid #c6c6cd', fontWeight: 500 }}>Transaction Time</th>
-                <th style={{ padding: '1rem', borderRight: '1px solid #c6c6cd', fontWeight: 500 }}>Status</th>
-                <th style={{ padding: '1rem', borderRight: '1px solid #c6c6cd', fontWeight: 500 }}>Sources</th>
+                <th style={{ padding: '1rem', borderRight: '1px solid #c6c6cd', fontWeight: 500, cursor: 'pointer' }} onClick={() => setShowLegend(true)} title="Click to view Status Definitions Legend">
+                  Status <span style={{ color: '#3B82F6', fontSize: '0.78rem', marginLeft: '2px' }}>ⓘ</span>
+                </th>
+                <th style={{ padding: '1rem', borderRight: '1px solid #c6c6cd', fontWeight: 500, cursor: 'pointer' }} onClick={() => setShowLegend(true)} title="Click to view Source Presence Key">
+                  Sources <span style={{ color: '#3B82F6', fontSize: '0.78rem', marginLeft: '2px' }}>ⓘ</span>
+                </th>
                 <th style={{ padding: '1rem', fontWeight: 500 }}>Notes</th>
               </tr>
             </thead>
@@ -984,6 +953,155 @@ const ResultsBrowser = ({ refreshTrigger }) => {
         </div>
       </div>
     </div>
+
+      {/* Premium Status & Source Legend Modal Overlay */}
+      {showLegend && (
+        <div style={{
+          position: 'fixed',
+          top: 0,
+          left: 0,
+          width: '100vw',
+          height: '100vh',
+          backgroundColor: 'rgba(15, 23, 42, 0.4)',
+          backdropFilter: 'blur(5px)',
+          zIndex: 9999,
+          display: 'flex',
+          justifyContent: 'center',
+          alignItems: 'center',
+        }} onClick={() => setShowLegend(false)}>
+          <div style={{
+            background: '#FFFFFF',
+            border: '1px solid var(--color-border)',
+            borderRadius: '0px',
+            padding: '2rem',
+            width: '90%',
+            maxWidth: '680px',
+            boxShadow: '0 25px 50px -12px rgba(0, 0, 0, 0.25)',
+            display: 'flex',
+            flexDirection: 'column',
+            gap: '1.25rem',
+            textAlign: 'left',
+          }} onClick={e => e.stopPropagation()}>
+            {/* Modal Header */}
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', borderBottom: '1px solid var(--color-border)', paddingBottom: '0.75rem' }}>
+              <span style={{ fontSize: '1rem', fontWeight: 800, fontFamily: 'Outfit, sans-serif', color: 'var(--color-primary)', letterSpacing: '-0.01em', textTransform: 'uppercase' }}>
+                Reconciliation Ledger Legend & Key
+              </span>
+              <button 
+                onClick={() => setShowLegend(false)}
+                style={{ background: 'none', border: 'none', fontSize: '1.25rem', color: 'var(--text-muted)', cursor: 'pointer', fontWeight: 600 }}
+              >✕</button>
+            </div>
+
+            {/* Modal Scrollable Content */}
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '1.5rem', maxHeight: '65vh', overflowY: 'auto', paddingRight: '0.5rem' }}>
+              
+              {/* Section 1: Source Presence Key */}
+              <div>
+                <div style={{ fontSize: '0.75rem', fontWeight: 700, color: 'var(--text-muted)', marginBottom: '0.65rem', letterSpacing: '0.08em', textTransform: 'uppercase' }}>
+                  Source Presence Indicators
+                </div>
+                <div style={{
+                  display: 'flex',
+                  gap: '0.75rem',
+                  padding: '0.75rem 1rem',
+                  background: 'var(--color-neutral)',
+                  border: '1px solid var(--color-border)',
+                  borderRadius: '0px',
+                  flexWrap: 'wrap',
+                }}>
+                  {ALL_SOURCES.map(src => {
+                    const s = SOURCE_STYLES[src];
+                    return (
+                      <div key={src} style={{ display: 'flex', alignItems: 'center', gap: '0.35rem' }}>
+                        <span style={{
+                          fontSize: '0.72rem',
+                          fontWeight: 700,
+                          padding: '0.15rem 0.55rem',
+                          borderRadius: '0px',
+                          border: `1px solid ${s.border}`,
+                          background: s.bg,
+                          color: s.color,
+                          fontFamily: 'monospace',
+                        }}>
+                          {src}
+                        </span>
+                        <span style={{ fontSize: '0.75rem', color: 'var(--color-primary)' }}>
+                          {src === 'App' ? 'Mobile App' : src === 'PG' ? 'Payment Gateway' : 'AFC Turnstile Gates'}
+                        </span>
+                      </div>
+                    );
+                  })}
+                </div>
+                <p style={{ fontSize: '0.72rem', color: 'var(--text-muted)', marginTop: '0.45rem', lineHeight: 1.4 }}>
+                  💡 <b>Strikethrough & Fading:</b> If a source badge in the table is crossed out (e.g. <span style={{ textDecoration: 'line-through', opacity: 0.4 }}>PG</span>), it means the transaction record was <b>NOT</b> detected in that database channel.
+                </p>
+              </div>
+
+              {/* Section 2: Reconciliation Status Definitions */}
+              <div>
+                <div style={{ fontSize: '0.75rem', fontWeight: 700, color: 'var(--text-muted)', marginBottom: '0.65rem', letterSpacing: '0.08em', textTransform: 'uppercase' }}>
+                  Reconciliation Status Rules
+                </div>
+                <div style={{ display: 'flex', flexDirection: 'column', gap: '0.65rem' }}>
+                  {STATUS_LEGEND.map(l => (
+                    <div
+                      key={l.key}
+                      style={{
+                        background: l.bg,
+                        border: `1px solid ${l.border}`,
+                        borderRadius: '0px',
+                        padding: '0.75rem 1rem',
+                        display: 'flex',
+                        gap: '0.8rem',
+                        alignItems: 'flex-start',
+                      }}
+                    >
+                      <span style={{
+                        flexShrink: 0,
+                        width: '24px',
+                        height: '24px',
+                        borderRadius: '50%',
+                        background: l.color,
+                        color: '#FFFFFF',
+                        fontWeight: 800,
+                        fontSize: '0.75rem',
+                        display: 'flex',
+                        alignItems: 'center',
+                        justifyContent: 'center',
+                      }}>
+                        {l.icon}
+                      </span>
+                      <div>
+                        <div style={{ fontWeight: 700, fontSize: '0.82rem', color: l.color, marginBottom: '0.15rem', fontFamily: 'Outfit, sans-serif' }}>
+                          {l.title}
+                        </div>
+                        <div style={{ fontSize: '0.75rem', color: 'var(--color-primary)', lineHeight: 1.45 }}>
+                          {l.desc}
+                        </div>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              </div>
+
+            </div>
+
+            {/* Modal Footer */}
+            <div style={{ display: 'flex', justifyContent: 'flex-end', borderTop: '1px solid var(--color-border)', paddingTop: '1rem', marginTop: '0.5rem' }}>
+              <button
+                type="button"
+                onClick={() => setShowLegend(false)}
+                className="btn-primary-black"
+                style={{ padding: '0.5rem 1.5rem', fontSize: '0.75rem' }}
+              >
+                Close Legend
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+    </>
   );
 };
 

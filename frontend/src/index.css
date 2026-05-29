@@ -819,7 +819,7 @@ tr.selected-row td {
 
 /* Premium Responsive Viewport Layout for Ledger Page */
 .content-body.ledger-page {
-  height: calc(100vh - 64px);
+  height: 100vh;
   overflow: hidden;
   display: flex;
   flex-direction: column;
@@ -854,6 +854,165 @@ tr.selected-row td {
 
 .staged-row-hover:hover {
   background-color: #f0f4f8 !important;
+}
+
+/* Responsive Typography, Spacings, and Collapsible Mobile Sidebar */
+@media (max-width: 1200px) {
+  /* Tablet / Small Desktop scale */
+  .page-title {
+    font-size: 22px;
+  }
+  .page-subtext {
+    font-size: 15px;
+  }
+}
+
+@media (max-width: 992px) {
+  /* Small Tablet scale */
+  .page-title {
+    font-size: 20px;
+  }
+  .page-subtext {
+    font-size: 14px;
+  }
+  .content-body {
+    padding: 1.5rem;
+    gap: 1.5rem;
+  }
+  .widget-card {
+    padding: 1.25rem;
+  }
+}
+
+@media (max-width: 768px) {
+  /* Mobile scale */
+  .page-title {
+    font-size: 18px;
+  }
+  .page-subtext {
+    font-size: 13px;
+  }
+  .content-body {
+    padding: 1rem;
+    gap: 1rem;
+  }
+  .widget-card {
+    padding: 1rem;
+  }
+  
+  /* Table compacting */
+  th {
+    padding: 0.75rem 0.5rem;
+    font-size: 0.7rem;
+  }
+  td {
+    padding: 0.75rem 0.5rem;
+    font-size: 0.78rem;
+  }
+  
+  /* Sidebar collapsing CSS */
+  .sidebar {
+    position: fixed;
+    top: 0;
+    left: -260px !important; /* Slide completely off-screen */
+    z-index: 1000;
+    box-shadow: 10px 0 25px rgba(15, 23, 42, 0.15);
+    transition: left 0.35s cubic-bezier(0.16, 1, 0.3, 1);
+    height: 100vh;
+    background-color: #EDF2F7;
+  }
+  
+  .sidebar.open {
+    left: 0 !important; /* Slide in drawer! */
+  }
+  
+  .main-layout {
+    width: 100%;
+    /* Create space for top floating toggle button */
+    padding-top: 4rem;
+  }
+  
+  .content-body.ledger-page {
+    height: calc(100vh - 4rem); /* account for padding-top on mobile */
+  }
+  
+  .mobile-sidebar-toggle {
+    display: flex !important; /* Force visible on mobile */
+  }
+}
+
+@media (max-width: 480px) {
+  /* Extra Small Mobile scale */
+  .page-title {
+    font-size: 16px;
+  }
+  .page-subtext {
+    font-size: 12px;
+  }
+  .content-body {
+    padding: 0.75rem;
+  }
+  .widget-card {
+    padding: 0.75rem;
+  }
+}
+
+/* Revenue Summary Cards styling */
+.revenue-summary-wrapper {
+  border: 1px solid #C6C6CD;
+  border-radius: 0px;
+  background-color: #f0f4f8; /* Faded surface-container-low color */
+  padding: 2rem;
+}
+
+.revenue-summary-grid {
+  display: grid;
+  grid-template-columns: repeat(5, 1fr);
+  gap: 2rem;
+}
+
+.revenue-summary-col {
+  display: flex;
+  flex-direction: column;
+}
+
+.revenue-summary-col:not(:first-child) {
+  border-left: 1px solid #C6C6CD;
+  padding-left: 2rem;
+}
+
+/* Tablet & Mobile responsive behavior for Revenue Summary */
+@media (max-width: 1024px) {
+  .revenue-summary-wrapper {
+    background-color: transparent !important;
+    border: none !important;
+    padding: 0 !important;
+  }
+  
+  .revenue-summary-grid {
+    grid-template-columns: repeat(3, 1fr) !important;
+    gap: 1rem !important;
+  }
+  
+  .revenue-summary-col {
+    background-color: #ffffff !important;
+    border: 1px solid #C6C6CD !important;
+    padding: 1.25rem !important;
+    border-left: 1px solid #C6C6CD !important; /* Force sidebar accent border */
+    padding-left: 1.25rem !important;
+  }
+}
+
+@media (max-width: 768px) {
+  .revenue-summary-grid {
+    grid-template-columns: repeat(2, 1fr) !important;
+  }
+}
+
+@media (max-width: 480px) {
+  .revenue-summary-grid {
+    grid-template-columns: 1fr !important;
+  }
 }
 
 

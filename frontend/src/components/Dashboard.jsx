@@ -218,19 +218,10 @@ const Dashboard = ({ dbStatus, summaries = [] }) => {
           <div style={{ flex: 1, height: '1px', backgroundColor: '#C6C6CD' }}></div>
         </div>
 
-        <div style={{ 
-          border: '1px solid #C6C6CD', 
-          borderRadius: '0px',
-          backgroundColor: '#f0f4f8', // Faded surface-container-low color
-          padding: '2rem'
-        }}>
-          <div style={{
-            display: 'grid',
-            gridTemplateColumns: 'repeat(auto-fit, minmax(160px, 1fr))',
-            gap: '2rem'
-          }}>
+        <div className="revenue-summary-wrapper">
+          <div className="revenue-summary-grid">
             {/* Column 1: Total AFC Revenue */}
-            <div style={{ flex: 1, display: 'flex', flexDirection: 'column' }}>
+            <div className="revenue-summary-col">
               <span style={{ fontSize: '12px', lineHeight: '1', letterSpacing: '0.05em', fontWeight: '500', color: '#45464D', marginBottom: '0.5rem' }}>
                 Total AFC Revenue
               </span>
@@ -240,7 +231,7 @@ const Dashboard = ({ dbStatus, summaries = [] }) => {
             </div>
 
             {/* Column 2: Total Mobile Revenue */}
-            <div style={{ flex: 1, display: 'flex', flexDirection: 'column', borderLeft: '1px solid #C6C6CD', paddingLeft: '2rem' }}>
+            <div className="revenue-summary-col">
               <span style={{ fontSize: '12px', lineHeight: '1', letterSpacing: '0.05em', fontWeight: '500', color: '#45464D', marginBottom: '0.5rem' }}>
                 Total Mobile Revenue
               </span>
@@ -250,7 +241,7 @@ const Dashboard = ({ dbStatus, summaries = [] }) => {
             </div>
 
             {/* Column 3: Total Settled Revenue */}
-            <div style={{ flex: 1, display: 'flex', flexDirection: 'column', borderLeft: '1px solid #C6C6CD', paddingLeft: '2rem' }}>
+            <div className="revenue-summary-col">
               <span style={{ fontSize: '12px', lineHeight: '1', letterSpacing: '0.05em', fontWeight: '500', color: '#45464D', marginBottom: '0.5rem' }}>
                 Total Settled Revenue
               </span>
@@ -260,7 +251,7 @@ const Dashboard = ({ dbStatus, summaries = [] }) => {
             </div>
 
             {/* Column 4: Total Refund Amount */}
-            <div style={{ flex: 1, display: 'flex', flexDirection: 'column', borderLeft: '1px solid #C6C6CD', paddingLeft: '2rem' }}>
+            <div className="revenue-summary-col">
               <span style={{ fontSize: '12px', lineHeight: '1', letterSpacing: '0.05em', fontWeight: '500', color: '#45464D', marginBottom: '0.5rem' }}>
                 Total Refund Amount
               </span>
@@ -270,7 +261,7 @@ const Dashboard = ({ dbStatus, summaries = [] }) => {
             </div>
 
             {/* Column 5: Net Revenue Balance */}
-            <div style={{ flex: 1, display: 'flex', flexDirection: 'column', borderLeft: '1px solid #C6C6CD', paddingLeft: '2rem' }}>
+            <div className="revenue-summary-col">
               <span style={{ fontSize: '12px', lineHeight: '1', letterSpacing: '0.05em', fontWeight: '500', color: '#45464D', marginBottom: '0.5rem' }}>
                 Net Revenue Balance
               </span>

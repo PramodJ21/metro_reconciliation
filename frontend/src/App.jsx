@@ -17,6 +17,7 @@ function App() {
   
   // Page Routing: 'dashboard', 'depot', 'logger', 'ledger'
   const [activePage, setActivePage] = useState('dashboard');
+  const [sidebarOpen, setSidebarOpen] = useState(false);
 
   // Fetch db row metrics
   const fetchDbStatus = async () => {
@@ -206,10 +207,58 @@ function App() {
     }
   };
 
+  const handleSidebarNavigate = (page) => {
+    setActivePage(page);
+    setSidebarOpen(false);
+  };
+
   return (
     <>
+      {/* Floating Mobile Sidebar Trigger (only visible on mobile via media queries) */}
+      <button 
+        type="button"
+        className="mobile-sidebar-toggle"
+        onClick={() => setSidebarOpen(prev => !prev)}
+        style={{
+          position: 'fixed',
+          top: '1rem',
+          left: '1rem',
+          zIndex: 1001,
+          display: 'none',
+          alignItems: 'center',
+          justifyContent: 'center',
+          width: '42px',
+          height: '42px',
+          backgroundColor: '#FFFFFF',
+          border: '1px solid var(--color-border)',
+          color: 'var(--color-primary)',
+          cursor: 'pointer',
+          boxShadow: '0 4px 12px rgba(15, 23, 42, 0.08)',
+          fontSize: '1.25rem',
+        }}
+      >
+        {sidebarOpen ? '✕' : '☰'}
+      </button>
+
+      {/* Mobile Sidebar overlay backdrop */}
+      {sidebarOpen && (
+        <div 
+          style={{
+            position: 'fixed',
+            top: 0,
+            left: 0,
+            width: '100vw',
+            height: '100vh',
+            backgroundColor: 'rgba(15, 23, 42, 0.3)',
+            backdropFilter: 'blur(2px)',
+            zIndex: 999,
+          }}
+          onClick={() => setSidebarOpen(false)}
+        />
+      )}
+
       {/* 1. Sleek Left Sidebar (Single Source of Navigation Truth) */}
-      <aside className="sidebar">
+      <aside className={`sidebar ${sidebarOpen ? 'open' : ''}`}>
         <div className="sidebar-top">
           <div className="sidebar-logo">
             <h2 style={{ fontSize: '1.2rem', fontWeight: 800, letterSpacing: '-0.02em', color: 'var(--color-primary)' }}>Metro Operations</h2>
@@ -219,7 +268,7 @@ function App() {
           <div className="sidebar-menu">
             <div 
               className={`sidebar-item ${activePage === 'dashboard' ? 'active' : ''}`}
-              onClick={() => setActivePage('dashboard')}
+              onClick={() => handleSidebarNavigate('dashboard')}
             >
               <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><rect x="3" y="3" width="7" height="9"></rect><rect x="14" y="3" width="7" height="5"></rect><rect x="14" y="12" width="7" height="9"></rect><rect x="3" y="16" width="7" height="5"></rect></svg>
               Dashboard
@@ -227,82 +276,117 @@ function App() {
             
             <div 
               className={`sidebar-item ${activePage === 'depot' ? 'active' : ''}`}
-              onClick={() => setActivePage('depot')}
+              onClick={() => handleSidebarNavigate('depot')}
             >
               <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><rect x="2" y="2" width="20" height="8" rx="2" ry="2"></rect><rect x="2" y="14" width="20" height="8" rx="2" ry="2"></rect><line x1="6" y1="6" x2="6.01" y2="6"></line><line x1="6" y1="18" x2="6.01" y2="18"></line></svg>
               Ingestion Hub
             </div>
             <div 
               className={`sidebar-item ${activePage === 'ledger' ? 'active' : ''}`}
-              onClick={() => setActivePage('ledger')}
+              onClick={() => handleSidebarNavigate('ledger')}
             >
               <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><line x1="3" y1="22" x2="21" y2="22"></line><line x1="6" y1="18" x2="6" y2="11"></line><line x1="10" y1="18" x2="10" y2="11"></line><line x1="14" y1="18" x2="14" y2="11"></line><line x1="18" y1="18" x2="18" y2="11"></line><path d="M12 2L2 7h20L12 2z"></path></svg>
               Reconciliation Ledger
             </div>
             <div 
               className={`sidebar-item ${activePage === 'logger' ? 'active' : ''}`}
-              onClick={() => setActivePage('logger')}
+              onClick={() => handleSidebarNavigate('logger')}
             >
               <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M3 12a9 9 0 1 0 9-9 9.75 9.75 0 0 0-6.74 2.74L3 8"></path><polyline points="3 3 3 8 8 8"></polyline></svg>
               Audit Logs
             </div>
           </div>
         </div>
+
+        {/* Dynamic Sidebar Footer with Status and controls */}
+        <div className="sidebar-footer" style={{
+          display: 'flex',
+          flexDirection: 'column',
+          gap: '0.75rem',
+          padding: '1.25rem 1.5rem',
+          borderTop: '1px solid rgba(0, 0, 0, 0.08)',
+          backgroundColor: 'rgba(0, 0, 0, 0.015)'
+        }}>
+          {/* Database Online Badge */}
+          <div className="db-badge" style={{
+            display: 'flex',
+            alignItems: 'center',
+            gap: '0.45rem',
+            padding: '0.5rem 0.75rem',
+            fontSize: '0.7rem',
+            fontWeight: 700,
+            letterSpacing: '0.04em',
+            borderRadius: '0px',
+            backgroundColor: dbStatus?.connected ? 'rgba(16, 185, 129, 0.08)' : 'rgba(239, 68, 68, 0.08)',
+            border: `1px solid ${dbStatus?.connected ? 'rgba(16, 185, 129, 0.2)' : 'rgba(239, 68, 68, 0.2)'}`,
+            color: dbStatus?.connected ? '#047857' : '#991B1B',
+            fontFamily: "'Outfit', sans-serif",
+            width: '100%',
+            boxSizing: 'border-box'
+          }}>
+            <span 
+              className={`ready-bullet ${dbStatus?.connected ? 'pulse-bullet' : ''}`} 
+              style={{
+                width: '6px',
+                height: '6px',
+                borderRadius: '50%',
+                backgroundColor: dbStatus?.connected ? '#10b981' : '#ef4444',
+                boxShadow: dbStatus?.connected ? '0 0 6px #10b981' : 'none',
+                display: 'inline-block'
+              }}
+            ></span>
+            {dbStatus?.connected ? 'NETWORK ONLINE' : 'DATABASE OFFLINE'}
+          </div>
+
+          {/* Trigger Classification Button */}
+          <button
+            type="button"
+            onClick={handleTriggerClassification}
+            disabled={reconRunning}
+            style={{
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'center',
+              gap: '0.4rem',
+              padding: '0.65rem 1rem',
+              fontSize: '0.72rem',
+              fontWeight: 700,
+              letterSpacing: '0.06em',
+              textTransform: 'uppercase',
+              fontFamily: "'Outfit', sans-serif",
+              background: reconRunning ? '#cbd5e1' : 'var(--color-primary)',
+              color: reconRunning ? 'var(--text-muted)' : '#ffffff',
+              border: 'none',
+              borderRadius: '0px',
+              cursor: reconRunning ? 'not-allowed' : 'pointer',
+              transition: 'all 0.15s ease',
+              width: '100%',
+              boxSizing: 'border-box',
+            }}
+            onMouseOver={e => { if (!reconRunning) e.target.style.background = '#1E293B'; }}
+            onMouseOut={e => { if (!reconRunning) e.target.style.background = 'var(--color-primary)'; }}
+          >
+            <span style={{ fontSize: '0.75rem' }}>{reconRunning ? '◌' : '▸'}</span>
+            {reconRunning ? 'Classifying...' : 'Trigger Classify'}
+          </button>
+
+          {/* Inline Status Message */}
+          {reconMessage && (
+            <div style={{
+              fontSize: '0.68rem',
+              fontWeight: 600,
+              color: reconStatus === 'success' ? '#10b981' : '#ef4444',
+              letterSpacing: '0.02em',
+              textAlign: 'center',
+            }}>
+              {reconStatus === 'success' ? '✓' : '⚠'} {reconMessage}
+            </div>
+          )}
+        </div>
       </aside>
 
       {/* 2. Main Content Layout Area */}
       <div className="main-layout">
-        {/* Top Header Bar */}
-        <header className="top-header">
-
-          <div className="top-header-actions">
-            <div className="db-badge" style={{ borderRadius: '0px' }}>
-              <span className={`ready-bullet ${dbStatus?.connected ? 'pulse-bullet' : ''}`} style={{ backgroundColor: dbStatus?.connected ? 'var(--color-secondary)' : '#ef4444' }}></span>
-              {dbStatus?.connected ? 'NETWORK ONLINE' : 'DATABASE OFFLINE'}
-            </div>
-
-            {/* Global Trigger Classification button */}
-            <button
-              type="button"
-              onClick={handleTriggerClassification}
-              disabled={reconRunning}
-              style={{
-                display: 'flex',
-                alignItems: 'center',
-                gap: '0.4rem',
-                padding: '0.35rem 0.9rem',
-                fontSize: '0.72rem',
-                fontWeight: 700,
-                letterSpacing: '0.07em',
-                textTransform: 'uppercase',
-                fontFamily: "'Outfit', sans-serif",
-                background: reconRunning ? '#e2e8f0' : 'var(--color-primary)',
-                color: reconRunning ? 'var(--text-muted)' : '#ffffff',
-                border: '1px solid var(--color-border)',
-                borderRadius: '0px',
-                cursor: reconRunning ? 'not-allowed' : 'pointer',
-                transition: 'all 0.2s ease',
-                whiteSpace: 'nowrap',
-                opacity: reconRunning ? 0.7 : 1,
-              }}
-            >
-              <span style={{ fontSize: '0.8rem' }}>{reconRunning ? '◌' : '▸'}</span>
-              {reconRunning ? 'Classifying...' : 'Trigger Classification'}
-            </button>
-
-            {/* Inline status flash */}
-            {reconMessage && !reconRunning && (
-              <span style={{
-                fontSize: '0.7rem',
-                fontWeight: 600,
-                color: reconStatus === 'success' ? 'var(--color-secondary)' : '#ef4444',
-                letterSpacing: '0.05em',
-              }}>
-                {reconStatus === 'success' ? '✓' : '⚠'} {reconMessage}
-              </span>
-            )}
-          </div>
-        </header>
 
         {/* Content Body based on Page Routing */}
         <main className={`content-body ${activePage === 'ledger' ? 'ledger-page' : ''}`}>
