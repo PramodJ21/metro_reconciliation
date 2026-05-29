@@ -16,8 +16,15 @@ function App() {
   const [globalLoading, setGlobalLoading] = useState({ active: false, title: '', progress: 0, message: '' });
   
   // Page Routing: 'dashboard', 'depot', 'logger', 'ledger'
-  const [activePage, setActivePage] = useState('dashboard');
+  const [activePage, setActivePage] = useState(() => {
+    return localStorage.getItem('transitflow_active_page') || 'dashboard';
+  });
   const [sidebarOpen, setSidebarOpen] = useState(false);
+
+  useEffect(() => {
+    localStorage.setItem('transitflow_active_page', activePage);
+  }, [activePage]);
+
 
   // Fetch db row metrics
   const fetchDbStatus = async () => {
@@ -258,130 +265,164 @@ function App() {
       )}
 
       {/* 1. Sleek Left Sidebar (Single Source of Navigation Truth) */}
-      <aside className={`sidebar ${sidebarOpen ? 'open' : ''}`}>
-        <div className="sidebar-top">
-          <div className="sidebar-logo">
-            <h2 style={{ fontSize: '1.2rem', fontWeight: 800, letterSpacing: '-0.02em', color: 'var(--color-primary)' }}>Metro Operations</h2>
-            <p style={{ fontSize: '0.68rem', letterSpacing: '0.05em', color: 'var(--text-muted)', fontWeight: 600, textTransform: 'uppercase', marginTop: '0.15rem' }}>Central Reconciliation</p>
+      <aside className={`sidebar ${sidebarOpen ? 'open' : ''}`} style={{ backgroundColor: '#FFFFFF', padding: '1.25rem 0 0 0' }}>
+        <div className="sidebar-top" style={{ display: 'flex', flexDirection: 'column', gap: 0 }}>
+          {/* Logo Section */}
+          <div className="sidebar-logo" style={{
+            display: 'flex',
+            alignItems: 'center',
+            gap: '0.75rem',
+            padding: '0 1.25rem 1.25rem 1.25rem',
+            borderBottom: '1px solid #94A3B8',
+            marginBottom: '1rem'
+          }}>
+            <div style={{
+              width: '36px',
+              height: '36px',
+              backgroundColor: '#000000',
+              borderRadius: '6px',
+              display: 'flex',
+              justifyContent: 'center',
+              alignItems: 'center',
+              flexShrink: 0
+            }}>
+              <span className="material-symbols-outlined" style={{ color: '#FFFFFF', fontSize: '20px' }}>train</span>
+            </div>
+            <div style={{ display: 'flex', flexDirection: 'column' }}>
+              <h2 style={{ fontSize: '15px', fontWeight: 700, color: '#0F172A', margin: 0, lineHeight: '1.25' }}>Transit Control</h2>
+              <p style={{ fontSize: '9px', fontWeight: 600, color: '#64748B', letterSpacing: '0.05em', textTransform: 'uppercase', margin: 0 }}>NETWORK MONITOR</p>
+            </div>
           </div>
           
-          <div className="sidebar-menu">
+          {/* Group 1 Menu Items (Dashboard) */}
+          <div className="sidebar-menu" style={{ display: 'flex', flexDirection: 'column', gap: '0.1rem', paddingBottom: '1rem', borderBottom: '1px solid #94A3B8', marginBottom: '1rem' }}>
             <div 
               className={`sidebar-item ${activePage === 'dashboard' ? 'active' : ''}`}
               onClick={() => handleSidebarNavigate('dashboard')}
+              style={{ display: 'flex', alignItems: 'center', gap: '0.85rem', padding: '0.7rem 1.25rem', cursor: 'pointer', fontSize: '14px', fontWeight: 500 }}
             >
-              <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><rect x="3" y="3" width="7" height="9"></rect><rect x="14" y="3" width="7" height="5"></rect><rect x="14" y="12" width="7" height="9"></rect><rect x="3" y="16" width="7" height="5"></rect></svg>
+              <span className="material-symbols-outlined" style={{ fontSize: '20px' }}>dashboard</span>
               Dashboard
             </div>
-            
+          </div>
+
+          {/* Group 2 Menu Items (Depot, Audit, Ledger) */}
+          <div className="sidebar-menu" style={{ display: 'flex', flexDirection: 'column', gap: '0.1rem', paddingBottom: '1rem', borderBottom: '1px solid #94A3B8', marginBottom: '1rem' }}>
             <div 
               className={`sidebar-item ${activePage === 'depot' ? 'active' : ''}`}
               onClick={() => handleSidebarNavigate('depot')}
+              style={{ display: 'flex', alignItems: 'center', gap: '0.85rem', padding: '0.7rem 1.25rem', cursor: 'pointer', fontSize: '14px', fontWeight: 500 }}
             >
-              <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><rect x="2" y="2" width="20" height="8" rx="2" ry="2"></rect><rect x="2" y="14" width="20" height="8" rx="2" ry="2"></rect><line x1="6" y1="6" x2="6.01" y2="6"></line><line x1="6" y1="18" x2="6.01" y2="18"></line></svg>
-              Ingestion Hub
+              <span className="material-symbols-outlined" style={{ fontSize: '20px' }}>storefront</span>
+              Depot
             </div>
-            <div 
-              className={`sidebar-item ${activePage === 'ledger' ? 'active' : ''}`}
-              onClick={() => handleSidebarNavigate('ledger')}
-            >
-              <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><line x1="3" y1="22" x2="21" y2="22"></line><line x1="6" y1="18" x2="6" y2="11"></line><line x1="10" y1="18" x2="10" y2="11"></line><line x1="14" y1="18" x2="14" y2="11"></line><line x1="18" y1="18" x2="18" y2="11"></line><path d="M12 2L2 7h20L12 2z"></path></svg>
-              Reconciliation Ledger
-            </div>
+            
             <div 
               className={`sidebar-item ${activePage === 'logger' ? 'active' : ''}`}
               onClick={() => handleSidebarNavigate('logger')}
+              style={{ display: 'flex', alignItems: 'center', gap: '0.85rem', padding: '0.7rem 1.25rem', cursor: 'pointer', fontSize: '14px', fontWeight: 500 }}
             >
-              <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M3 12a9 9 0 1 0 9-9 9.75 9.75 0 0 0-6.74 2.74L3 8"></path><polyline points="3 3 3 8 8 8"></polyline></svg>
-              Audit Logs
+              <span className="material-symbols-outlined" style={{ fontSize: '20px' }}>receipt_long</span>
+              Audit
+            </div>
+
+            <div 
+              className={`sidebar-item ${activePage === 'ledger' ? 'active' : ''}`}
+              onClick={() => handleSidebarNavigate('ledger')}
+              style={{ display: 'flex', alignItems: 'center', gap: '0.85rem', padding: '0.7rem 1.25rem', cursor: 'pointer', fontSize: '14px', fontWeight: 500 }}
+            >
+              <span className="material-symbols-outlined" style={{ fontSize: '20px' }}>account_balance_wallet</span>
+              Ledger
             </div>
           </div>
         </div>
 
-        {/* Dynamic Sidebar Footer with Status and controls */}
-        <div className="sidebar-footer" style={{
-          display: 'flex',
-          flexDirection: 'column',
-          gap: '0.75rem',
-          padding: '1.25rem 1.5rem',
-          borderTop: '1px solid rgba(0, 0, 0, 0.08)',
-          backgroundColor: 'rgba(0, 0, 0, 0.015)'
-        }}>
-          {/* Database Online Badge */}
-          <div className="db-badge" style={{
+        {/* Sidebar Footer with Status Controls */}
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 0, marginTop: 'auto', borderTop: '1px solid #94A3B8' }}>
+          {/* Database Status Controls */}
+          <div className="sidebar-footer" style={{
             display: 'flex',
-            alignItems: 'center',
-            gap: '0.45rem',
-            padding: '0.5rem 0.75rem',
-            fontSize: '0.7rem',
-            fontWeight: 700,
-            letterSpacing: '0.04em',
-            borderRadius: '0px',
-            backgroundColor: dbStatus?.connected ? 'rgba(16, 185, 129, 0.08)' : 'rgba(239, 68, 68, 0.08)',
-            border: `1px solid ${dbStatus?.connected ? 'rgba(16, 185, 129, 0.2)' : 'rgba(239, 68, 68, 0.2)'}`,
-            color: dbStatus?.connected ? '#047857' : '#991B1B',
-            fontFamily: "'Outfit', sans-serif",
-            width: '100%',
-            boxSizing: 'border-box'
+            flexDirection: 'column',
+            gap: '0.75rem',
+            padding: '1rem 1.25rem 1.25rem 1.25rem',
+            backgroundColor: '#FFFFFF'
           }}>
-            <span 
-              className={`ready-bullet ${dbStatus?.connected ? 'pulse-bullet' : ''}`} 
-              style={{
-                width: '6px',
-                height: '6px',
-                borderRadius: '50%',
-                backgroundColor: dbStatus?.connected ? '#10b981' : '#ef4444',
-                boxShadow: dbStatus?.connected ? '0 0 6px #10b981' : 'none',
-                display: 'inline-block'
-              }}
-            ></span>
-            {dbStatus?.connected ? 'NETWORK ONLINE' : 'DATABASE OFFLINE'}
-          </div>
-
-          {/* Trigger Classification Button */}
-          <button
-            type="button"
-            onClick={handleTriggerClassification}
-            disabled={reconRunning}
-            style={{
+            {/* Database Online Badge */}
+            <div className="db-badge" style={{
               display: 'flex',
               alignItems: 'center',
-              justifyContent: 'center',
-              gap: '0.4rem',
-              padding: '0.65rem 1rem',
-              fontSize: '0.72rem',
+              gap: '0.45rem',
+              padding: '0.5rem 0.75rem',
+              fontSize: '0.7rem',
               fontWeight: 700,
-              letterSpacing: '0.06em',
-              textTransform: 'uppercase',
-              fontFamily: "'Outfit', sans-serif",
-              background: reconRunning ? '#cbd5e1' : 'var(--color-primary)',
-              color: reconRunning ? 'var(--text-muted)' : '#ffffff',
-              border: 'none',
+              letterSpacing: '0.04em',
               borderRadius: '0px',
-              cursor: reconRunning ? 'not-allowed' : 'pointer',
-              transition: 'all 0.15s ease',
+              backgroundColor: dbStatus?.connected ? 'rgba(16, 185, 129, 0.08)' : 'rgba(239, 68, 68, 0.08)',
+              border: `1px solid ${dbStatus?.connected ? 'rgba(16, 185, 129, 0.2)' : 'rgba(239, 68, 68, 0.2)'}`,
+              color: dbStatus?.connected ? '#047857' : '#991B1B',
+              fontFamily: "'Outfit', sans-serif",
               width: '100%',
-              boxSizing: 'border-box',
-            }}
-            onMouseOver={e => { if (!reconRunning) e.target.style.background = '#1E293B'; }}
-            onMouseOut={e => { if (!reconRunning) e.target.style.background = 'var(--color-primary)'; }}
-          >
-            <span style={{ fontSize: '0.75rem' }}>{reconRunning ? '◌' : '▸'}</span>
-            {reconRunning ? 'Classifying...' : 'Trigger Classify'}
-          </button>
-
-          {/* Inline Status Message */}
-          {reconMessage && (
-            <div style={{
-              fontSize: '0.68rem',
-              fontWeight: 600,
-              color: reconStatus === 'success' ? '#10b981' : '#ef4444',
-              letterSpacing: '0.02em',
-              textAlign: 'center',
+              boxSizing: 'border-box'
             }}>
-              {reconStatus === 'success' ? '✓' : '⚠'} {reconMessage}
+              <span 
+                className={`ready-bullet ${dbStatus?.connected ? 'pulse-bullet' : ''}`} 
+                style={{
+                  width: '6px',
+                  height: '6px',
+                  borderRadius: '50%',
+                  backgroundColor: dbStatus?.connected ? '#10b981' : '#ef4444',
+                  boxShadow: dbStatus?.connected ? '0 0 6px #10b981' : 'none',
+                  display: 'inline-block'
+                }}
+              ></span>
+              {dbStatus?.connected ? 'NETWORK ONLINE' : 'DATABASE OFFLINE'}
             </div>
-          )}
+
+            {/* Trigger Classification Button */}
+            <button
+              type="button"
+              onClick={handleTriggerClassification}
+              disabled={reconRunning}
+              style={{
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'center',
+                gap: '0.4rem',
+                padding: '0.65rem 1rem',
+                fontSize: '0.72rem',
+                fontWeight: 700,
+                letterSpacing: '0.06em',
+                textTransform: 'uppercase',
+                fontFamily: "'Outfit', sans-serif",
+                background: reconRunning ? '#cbd5e1' : 'var(--color-primary)',
+                color: reconRunning ? 'var(--text-muted)' : '#ffffff',
+                border: 'none',
+                borderRadius: '0px',
+                cursor: reconRunning ? 'not-allowed' : 'pointer',
+                transition: 'all 0.15s ease',
+                width: '100%',
+                boxSizing: 'border-box',
+              }}
+              onMouseOver={e => { if (!reconRunning) e.target.style.background = '#1E293B'; }}
+              onMouseOut={e => { if (!reconRunning) e.target.style.background = 'var(--color-primary)'; }}
+            >
+              <span style={{ fontSize: '0.75rem' }}>{reconRunning ? '◌' : '▸'}</span>
+              {reconRunning ? 'Classifying...' : 'Trigger Classify'}
+            </button>
+
+            {/* Inline Status Message */}
+            {reconMessage && (
+              <div style={{
+                fontSize: '0.68rem',
+                fontWeight: 600,
+                color: reconStatus === 'success' ? '#10b981' : '#ef4444',
+                letterSpacing: '0.02em',
+                textAlign: 'center',
+              }}>
+                {reconStatus === 'success' ? '✓' : '⚠'} {reconMessage}
+              </div>
+            )}
+          </div>
         </div>
       </aside>
 

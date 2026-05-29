@@ -154,12 +154,16 @@ const ResultsBrowser = ({ refreshTrigger }) => {
   const [statusFilter, setStatusFilter] = useState('');
   const [searchQuery, setSearchQuery] = useState('');
   const [selectedSources, setSelectedSources] = useState([]);
+  const [fromDate, setFromDate] = useState('');
+  const [toDate, setToDate] = useState('');
 
   // Pending Filters (Local to popover, committed on "Apply now")
   const [pendingAppFilter, setPendingAppFilter] = useState('');
   const [pendingStatusFilter, setPendingStatusFilter] = useState('');
   const [pendingSearchQuery, setPendingSearchQuery] = useState('');
   const [pendingSelectedSources, setPendingSelectedSources] = useState([]);
+  const [pendingFromDate, setPendingFromDate] = useState('');
+  const [pendingToDate, setPendingToDate] = useState('');
 
   const [pageInputVal, setPageInputVal] = useState('1');
   const [loading, setLoading] = useState(false);
@@ -173,6 +177,8 @@ const ResultsBrowser = ({ refreshTrigger }) => {
       setPendingStatusFilter(statusFilter);
       setPendingSearchQuery(searchQuery);
       setPendingSelectedSources(selectedSources);
+      setPendingFromDate(fromDate);
+      setPendingToDate(toDate);
     }
   }, [showFiltersPanel]);
 
@@ -181,10 +187,14 @@ const ResultsBrowser = ({ refreshTrigger }) => {
     setStatusFilter('');
     setSearchQuery('');
     setSelectedSources([]);
+    setFromDate('');
+    setToDate('');
     setPendingAppFilter('');
     setPendingStatusFilter('');
     setPendingSearchQuery('');
     setPendingSelectedSources([]);
+    setPendingFromDate('');
+    setPendingToDate('');
     setPage(1);
   };
 
@@ -196,6 +206,8 @@ const ResultsBrowser = ({ refreshTrigger }) => {
       if (statusFilter) params.status = statusFilter;
       if (searchQuery) params.search = searchQuery;
       if (selectedSources.length > 0) params.sources = selectedSources.join(',');
+      if (fromDate) params.from_date = fromDate;
+      if (toDate) params.to_date = toDate;
 
       const response = await axios.get('http://127.0.0.1:8000/api/reconcile/results', { params });
       setResults(response.data.results);
@@ -214,7 +226,7 @@ const ResultsBrowser = ({ refreshTrigger }) => {
     }, 400);
 
     return () => clearTimeout(delayDebounceFn);
-  }, [page, limit, appFilter, statusFilter, searchQuery, selectedSources, refreshTrigger]);
+  }, [page, limit, appFilter, statusFilter, searchQuery, selectedSources, fromDate, toDate, refreshTrigger]);
 
   const toggleSourceFilter = (src) => {
     setPage(1);
@@ -401,26 +413,6 @@ const ResultsBrowser = ({ refreshTrigger }) => {
         <div style={{ display: 'flex', gap: '0.5rem', position: 'relative' }}>
           <button
             type="button"
-            className="btn-secondary-outline"
-            style={{
-              display: 'inline-flex',
-              alignItems: 'center',
-              gap: '0.4rem',
-              padding: '0.45rem 1rem',
-              fontSize: '0.8rem',
-              fontWeight: 600,
-              borderRadius: '0px',
-              border: '1px solid var(--color-border)',
-              background: 'var(--color-panel-bg)',
-              color: 'var(--color-primary)',
-              cursor: 'pointer',
-            }}
-          >
-            ⇅ Sort by
-          </button>
-
-          <button
-            type="button"
             onClick={() => setShowFiltersPanel(v => !v)}
             style={{
               display: 'inline-flex',
@@ -438,7 +430,7 @@ const ResultsBrowser = ({ refreshTrigger }) => {
             }}
           >
             ⚙ Filter
-            {((appFilter ? 1 : 0) + (statusFilter ? 1 : 0) + (selectedSources.length > 0 ? 1 : 0) + (searchQuery ? 1 : 0)) > 0 && (
+            {((appFilter ? 1 : 0) + (statusFilter ? 1 : 0) + (selectedSources.length > 0 ? 1 : 0) + (searchQuery ? 1 : 0) + (fromDate ? 1 : 0) + (toDate ? 1 : 0)) > 0 && (
               <span style={{
                 backgroundColor: '#0f766e',
                 color: '#ffffff',
@@ -452,7 +444,7 @@ const ResultsBrowser = ({ refreshTrigger }) => {
                 fontWeight: 800,
                 marginLeft: '0.25rem',
               }}>
-                {(appFilter ? 1 : 0) + (statusFilter ? 1 : 0) + (selectedSources.length > 0 ? 1 : 0) + (searchQuery ? 1 : 0)}
+                {(appFilter ? 1 : 0) + (statusFilter ? 1 : 0) + (selectedSources.length > 0 ? 1 : 0) + (searchQuery ? 1 : 0) + (fromDate ? 1 : 0) + (toDate ? 1 : 0)}
               </span>
             )}
           </button>
@@ -464,7 +456,7 @@ const ResultsBrowser = ({ refreshTrigger }) => {
               top: 'calc(100% + 8px)',
               right: 0,
               width: '320px',
-              maxHeight: '340px',
+              maxHeight: '480px',
               overflowY: 'auto',
               background: '#FFFFFF',
               border: '1px solid var(--color-border)',
@@ -497,38 +489,38 @@ const ResultsBrowser = ({ refreshTrigger }) => {
                 </div>
                 <div style={{ display: 'flex', gap: '0.35rem' }}>
                   {ALL_SOURCES.map(src => {
-                    const active = pendingSelectedSources.includes(src);
-                    const s = SOURCE_STYLES[src];
-                    return (
-                      <button
-                        key={src}
-                        type="button"
-                        onClick={() => {
-                          setPendingSelectedSources(prev => 
-                            prev.includes(src) ? prev.filter(x => x !== src) : [...prev, src]
-                          );
-                        }}
-                        style={{
-                          fontSize: '0.68rem',
-                          fontWeight: 700,
-                          fontFamily: 'monospace',
-                          padding: '0.35rem 0.65rem',
-                          borderRadius: '0px',
-                          border: `1px solid ${active ? s.color : 'var(--color-border)'}`,
-                          background: active ? s.bg : 'var(--color-panel-bg)',
-                          color: active ? s.color : 'var(--text-muted)',
-                          cursor: 'pointer',
-                          letterSpacing: '0.02em',
-                          transition: 'all 0.15s ease',
-                          display: 'inline-flex',
-                          alignItems: 'center',
-                          gap: '0.2rem',
-                        }}
-                      >
-                        <span style={{ fontSize: '0.5rem', opacity: active ? 1 : 0.4 }}>{active ? '●' : '○'}</span>
-                        {src}
-                      </button>
-                    );
+                     const active = pendingSelectedSources.includes(src);
+                     const s = SOURCE_STYLES[src];
+                     return (
+                       <button
+                         key={src}
+                         type="button"
+                         onClick={() => {
+                           setPendingSelectedSources(prev => 
+                             prev.includes(src) ? prev.filter(x => x !== src) : [...prev, src]
+                           );
+                         }}
+                         style={{
+                           fontSize: '0.68rem',
+                           fontWeight: 700,
+                           fontFamily: 'monospace',
+                           padding: '0.35rem 0.65rem',
+                           borderRadius: '0px',
+                           border: `1px solid ${active ? s.color : 'var(--color-border)'}`,
+                           background: active ? s.bg : 'var(--color-panel-bg)',
+                           color: active ? s.color : 'var(--text-muted)',
+                           cursor: 'pointer',
+                           letterSpacing: '0.02em',
+                           transition: 'all 0.15s ease',
+                           display: 'inline-flex',
+                           alignItems: 'center',
+                           gap: '0.2rem',
+                         }}
+                       >
+                         <span style={{ fontSize: '0.5rem', opacity: active ? 1 : 0.4 }}>{active ? '●' : '○'}</span>
+                         {src}
+                       </button>
+                     );
                   })}
                 </div>
               </div>
@@ -620,6 +612,57 @@ const ResultsBrowser = ({ refreshTrigger }) => {
                 </div>
               </div>
 
+              {/* Section 5: Date Range */}
+              <div style={{ display: 'flex', flexDirection: 'column', gap: '0.45rem', borderTop: '1px solid var(--color-border)', paddingTop: '0.75rem' }}>
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                  <span style={{ fontSize: '0.78rem', fontWeight: 600, color: 'var(--color-primary)' }}>Date range</span>
+                  <button
+                    type="button"
+                    onClick={() => { setPendingFromDate(''); setPendingToDate(''); }}
+                    style={{ background: 'none', border: 'none', color: '#0284c7', fontSize: '0.75rem', fontWeight: 600, cursor: 'pointer', padding: 0 }}
+                  >
+                    Reset
+                  </button>
+                </div>
+                <div style={{ display: 'flex', gap: '0.5rem', alignItems: 'center' }}>
+                  <input
+                    type="date"
+                    value={pendingFromDate}
+                    onChange={(e) => setPendingFromDate(e.target.value)}
+                    style={{
+                      flex: 1,
+                      height: '36px',
+                      padding: '0 0.5rem',
+                      fontSize: '0.8rem',
+                      backgroundColor: 'var(--color-panel-bg)',
+                      border: '1px solid var(--color-border)',
+                      borderRadius: '0px',
+                      color: 'var(--color-primary)',
+                      outline: 'none',
+                      boxSizing: 'border-box',
+                    }}
+                  />
+                  <span style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>to</span>
+                  <input
+                    type="date"
+                    value={pendingToDate}
+                    onChange={(e) => setPendingToDate(e.target.value)}
+                    style={{
+                      flex: 1,
+                      height: '36px',
+                      padding: '0 0.5rem',
+                      fontSize: '0.8rem',
+                      backgroundColor: 'var(--color-panel-bg)',
+                      border: '1px solid var(--color-border)',
+                      borderRadius: '0px',
+                      color: 'var(--color-primary)',
+                      outline: 'none',
+                      boxSizing: 'border-box',
+                    }}
+                  />
+                </div>
+              </div>
+
               {/* Popover Footer modeled on Screenshot */}
               <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', borderTop: '1px solid var(--color-border)', paddingTop: '0.85rem', marginTop: '0.25rem' }}>
                 <button
@@ -629,6 +672,8 @@ const ResultsBrowser = ({ refreshTrigger }) => {
                     setPendingStatusFilter('');
                     setPendingSearchQuery('');
                     setPendingSelectedSources([]);
+                    setPendingFromDate('');
+                    setPendingToDate('');
                   }}
                   style={{
                     background: '#FFFFFF',
@@ -653,6 +698,8 @@ const ResultsBrowser = ({ refreshTrigger }) => {
                     setStatusFilter(pendingStatusFilter);
                     setSearchQuery(pendingSearchQuery);
                     setSelectedSources(pendingSelectedSources);
+                    setFromDate(pendingFromDate);
+                    setToDate(pendingToDate);
                     setPage(1);
                     setShowFiltersPanel(false);
                   }}
@@ -679,7 +726,7 @@ const ResultsBrowser = ({ refreshTrigger }) => {
       </div>
 
       {/* Premium Active Filter Chips (underneath toolbar) */}
-      {((appFilter ? 1 : 0) + (statusFilter ? 1 : 0) + (selectedSources.length > 0 ? 1 : 0) + (searchQuery ? 1 : 0)) > 0 && (
+      {((appFilter ? 1 : 0) + (statusFilter ? 1 : 0) + (selectedSources.length > 0 ? 1 : 0) + (searchQuery ? 1 : 0) + (fromDate ? 1 : 0) + (toDate ? 1 : 0)) > 0 && (
         <div style={{ display: 'flex', gap: '0.4rem', flexWrap: 'wrap', marginTop: '0.5rem', marginBottom: '0.5rem', alignItems: 'center' }}>
           <span style={{ fontSize: '0.7rem', color: 'var(--text-muted)', fontWeight: 700 }}>ACTIVE FILTERS:</span>
           {appFilter && (
@@ -698,6 +745,18 @@ const ResultsBrowser = ({ refreshTrigger }) => {
             <span style={{ fontSize: '0.72rem', fontWeight: 600, color: '#0f766e', backgroundColor: 'rgba(15, 118, 110, 0.08)', border: '1px solid rgba(15, 118, 110, 0.2)', padding: '0.25rem 0.55rem', borderRadius: '0px', display: 'inline-flex', alignItems: 'center', gap: '0.25rem' }}>
               Search: "{searchQuery}" 
               <b onClick={() => { setSearchQuery(''); setPage(1); }} style={{ cursor: 'pointer', marginLeft: '0.25rem', color: '#ef4444' }}>✕</b>
+            </span>
+          )}
+          {fromDate && (
+            <span style={{ fontSize: '0.72rem', fontWeight: 600, color: '#0f766e', backgroundColor: 'rgba(15, 118, 110, 0.08)', border: '1px solid rgba(15, 118, 110, 0.2)', padding: '0.25rem 0.55rem', borderRadius: '0px', display: 'inline-flex', alignItems: 'center', gap: '0.25rem' }}>
+              From: {fromDate} 
+              <b onClick={() => { setFromDate(''); setPage(1); }} style={{ cursor: 'pointer', marginLeft: '0.25rem', color: '#ef4444' }}>✕</b>
+            </span>
+          )}
+          {toDate && (
+            <span style={{ fontSize: '0.72rem', fontWeight: 600, color: '#0f766e', backgroundColor: 'rgba(15, 118, 110, 0.08)', border: '1px solid rgba(15, 118, 110, 0.2)', padding: '0.25rem 0.55rem', borderRadius: '0px', display: 'inline-flex', alignItems: 'center', gap: '0.25rem' }}>
+              To: {toDate} 
+              <b onClick={() => { setToDate(''); setPage(1); }} style={{ cursor: 'pointer', marginLeft: '0.25rem', color: '#ef4444' }}>✕</b>
             </span>
           )}
           {selectedSources.length > 0 && (

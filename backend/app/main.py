@@ -520,6 +520,8 @@ def get_results(
     status: Optional[str] = Query(None, description="Filter by status: 'Settled', 'Liable for Refund', 'Failed Transaction', 'Refunded'"),
     search: Optional[str] = Query(None, description="Search by Order ID, Ticket No, or PG Ref No"),
     sources: Optional[str] = Query(None, description="Comma-separated required sources presence, e.g., 'App,AFC'"),
+    from_date: Optional[str] = Query(None, description="Start date filter (YYYY-MM-DD)"),
+    to_date: Optional[str] = Query(None, description="End date filter (YYYY-MM-DD)"),
     page: int = Query(1, ge=1, description="Page number"),
     limit: int = Query(50, ge=1, le=500, description="Records per page"),
     db: Session = Depends(get_db)
@@ -548,6 +550,28 @@ def get_results(
         exact_sources = ",".join(sorted_req)
         base_query_str += " AND data_sources = :exact_sources"
         params["exact_sources"] = exact_sources
+
+    # Date Range filters
+    if from_date:
+        base_query_str += """ AND (
+            CASE
+                WHEN transaction_time ~ '^\\d{4}-\\d{2}-\\d{2}' THEN CAST(SUBSTRING(transaction_time FROM 1 FOR 10) AS DATE)
+                WHEN transaction_time ~ '^\\d{2}-\\d{2}-\\d{4}' THEN TO_DATE(SUBSTRING(transaction_time FROM 1 FOR 10), 'DD-MM-YYYY')
+                ELSE NULL
+            END
+        ) >= CAST(:from_date AS DATE)"""
+        params["from_date"] = from_date
+
+    if to_date:
+        base_query_str += """ AND (
+            CASE
+                WHEN transaction_time ~ '^\\d{4}-\\d{2}-\\d{2}' THEN CAST(SUBSTRING(transaction_time FROM 1 FOR 10) AS DATE)
+                WHEN transaction_time ~ '^\\d{2}-\\d{2}-\\d{4}' THEN TO_DATE(SUBSTRING(transaction_time FROM 1 FOR 10), 'DD-MM-YYYY')
+                ELSE NULL
+            END
+        ) <= CAST(:to_date AS DATE)"""
+        params["to_date"] = to_date
+
 
     # 2. Count Total Matches
     count_query = text(f"SELECT COUNT(*) {base_query_str}")

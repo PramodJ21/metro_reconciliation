@@ -53,7 +53,7 @@ html, body {
 .sidebar {
   width: 260px;
   height: 100vh;
-  background-color: #EDF2F7;
+  background-color: #FFFFFF;
   border-right: 1px solid var(--color-border);
   display: flex;
   flex-direction: column;
@@ -124,9 +124,9 @@ html, body {
 }
 
 .sidebar-item.active {
-  background-color: #E2E8F0;
-  color: var(--color-secondary);
-  border-right-color: var(--color-secondary);
+  background-color: #F1F5F9;
+  color: #0058be;
+  border-right-color: #0058be;
   font-weight: 600;
 }
 
@@ -699,12 +699,6 @@ tr.selected-row td {
   justify-content: center;
   align-items: center;
   pointer-events: all;
-  animation: fadeInOverlay 0.25s ease-out;
-}
-
-@keyframes fadeInOverlay {
-  from { opacity: 0; }
-  to { opacity: 1; }
 }
 
 .global-loader-box {
@@ -720,14 +714,8 @@ tr.selected-row td {
   flex-direction: column;
   align-items: center;
   gap: 1.25rem;
-  transform: translateY(0);
-  animation: slideUpLoader 0.3s cubic-bezier(0.16, 1, 0.3, 1);
 }
 
-@keyframes slideUpLoader {
-  from { transform: translateY(20px); opacity: 0; }
-  to { transform: translateY(0); opacity: 1; }
-}
 
 .loader-spinner-container {
   position: relative;
