@@ -1,5 +1,4 @@
 import React, { useState, useRef } from 'react';
-import axios from 'axios';
 
 const FileUploader = ({ onUploadSuccess, setGlobalLoading, dbStatus }) => {
   const [appName, setAppName] = useState('mumbaione');
@@ -62,161 +61,145 @@ const FileUploader = ({ onUploadSuccess, setGlobalLoading, dbStatus }) => {
     if (selectedFiles.length === 0) return;
 
     const totalFiles = selectedFiles.length;
-    let stagingInterval = null;
-    let currentStagedCount = 0;
-
-    const clearStagingInterval = () => {
-      if (stagingInterval) {
-        clearInterval(stagingInterval);
-        stagingInterval = null;
-      }
-    };
-
-    const startStagingSimulation = () => {
-      if (stagingInterval) return;
-      
-      // Start counting up from 1 to totalFiles
-      currentStagedCount = 1;
-      
-      if (setGlobalLoading) {
-        setGlobalLoading(prev => ({
-          ...prev,
-          progress: 82,
-          message: `Staging database: file ${currentStagedCount} of ${totalFiles} successfully staged...`
-        }));
-      }
-
-      stagingInterval = setInterval(() => {
-        if (currentStagedCount < totalFiles) {
-          currentStagedCount += 1;
-          const computedProgress = Math.min(98, 80 + Math.round((currentStagedCount / totalFiles) * 18));
-          setUploadProgress(computedProgress);
-          if (setGlobalLoading) {
-            setGlobalLoading(prev => ({
-              ...prev,
-              progress: computedProgress,
-              message: `Staging database: file ${currentStagedCount} of ${totalFiles} successfully staged...`
-            }));
-          }
-        }
-      }, Math.max(300, 3000 / totalFiles)); // Stagger files smoothly over 3 seconds max
-    };
 
     setUploading(true);
-    setUploadProgress(10);
-    setUploadLogs(["Initiating transaction payload...", "Connecting to Ingest API..."]);
+    setUploadProgress(5);
+    setUploadLogs(['Initiating transaction payload...', 'Connecting to Ingest API...']);
 
     if (setGlobalLoading) {
       setGlobalLoading({
         active: true,
         title: 'Ingesting Data Packets',
-        progress: 10,
-        message: `Packaging file data stream (0 of ${totalFiles} files staged)...`
+        progress: 5,
+        message: `Packaging ${totalFiles} file(s) for transmission...`
       });
     }
 
     const formData = new FormData();
-    formData.append("app_name", appName);
-    formData.append("channel", channel);
-    formData.append("clear_existing", clearExisting ? "true" : "false");
-    
-    selectedFiles.forEach((file) => {
-      formData.append("files", file);
-    });
+    formData.append('app_name', appName);
+    formData.append('channel', channel);
+    formData.append('clear_existing', clearExisting ? 'true' : 'false');
+    selectedFiles.forEach((file) => formData.append('files', file));
+
+    let completed = false;
 
     try {
-      setUploadProgress(30);
-      setUploadLogs(prev => [...prev, `Uploading packet ${totalFiles} file(s)...`]);
-      
-      if (setGlobalLoading) {
-        setGlobalLoading(prev => ({
-          ...prev,
-          progress: 30,
-          message: `Transmitting ${totalFiles} file(s) to Ingest server...`
-        }));
-      }
-      
-      const response = await axios.post("http://127.0.0.1:8000/api/reconcile/upload", formData, {
-        headers: {
-          'Content-Type': 'multipart/form-data'
-        },
-        onUploadProgress: (progressEvent) => {
-          const percentCompleted = Math.round((progressEvent.loaded * 100) / progressEvent.total);
-          
-          if (percentCompleted < 100) {
-            const computedProgress = Math.min(80, 10 + Math.round(percentCompleted * 0.7));
-            const filesUploaded = Math.min(totalFiles, Math.ceil((percentCompleted / 100) * totalFiles));
-            setUploadProgress(computedProgress);
-            if (setGlobalLoading) {
-              setGlobalLoading(prev => ({
-                ...prev,
-                progress: computedProgress,
-                message: `Transmitting data: ${filesUploaded} of ${totalFiles} file(s) uploaded (${percentCompleted}%)`
-              }));
-            }
-          } else {
-            // Upload complete, starting staging database simulation
-            setUploadProgress(80);
-            if (setGlobalLoading) {
-              setGlobalLoading(prev => ({
-                ...prev,
-                progress: 80,
-                message: `Staging database: file 1 of ${totalFiles} successfully staged...`
-              }));
-            }
-            startStagingSimulation();
-          }
-        }
+      const response = await fetch('http://127.0.0.1:8000/api/reconcile/upload', {
+        method: 'POST',
+        body: formData
       });
 
-      clearStagingInterval();
-      setUploadProgress(100);
-      
-      const data = response.data;
-      if (data.success) {
-        setUploadLogs(prev => [
-          ...prev, 
-          `✓ File transmission successful!`, 
-          `Inserted ${data.total_rows_loaded.toLocaleString()} rows into ${data.staging_table}.`
-        ]);
-        
-        data.processed_files.forEach(f => {
-          setUploadLogs(prev => [...prev, `   ↳ ${f.filename}: ${f.status} (${f.rows_loaded} rows)`]);
-        });
-        
-        if (setGlobalLoading) {
-          setGlobalLoading(prev => ({
-            ...prev,
-            progress: 100,
-            message: `✓ Success! Staged ${totalFiles} of ${totalFiles} file(s). Bulk inserted ${data.total_rows_loaded.toLocaleString()} rows.`
-          }));
-          setTimeout(() => {
-            setGlobalLoading({ active: false, title: '', progress: 0, message: '' });
-          }, 1500);
-        }
+      if (!response.ok || !response.body) {
+        const errText = await response.text().catch(() => 'Unknown server error');
+        throw new Error(errText);
+      }
 
-        setSelectedFiles([]);
-        if (onUploadSuccess) onUploadSuccess();
-      } else {
-        setUploadLogs(prev => [...prev, `⚠ Ingestion reported error: ${data.message || 'Unknown'}`]);
-        if (setGlobalLoading) {
-          setGlobalLoading(prev => ({
-            ...prev,
-            progress: 0,
-            message: `⚠ Failed: ${data.message || 'Unknown'}`
-          }));
-          setTimeout(() => {
-            setGlobalLoading({ active: false, title: '', progress: 0, message: '' });
-          }, 1800);
+      // ── SSE Stream Reader ───────────────────────────────────────────────────
+      const reader = response.body.getReader();
+      const decoder = new TextDecoder();
+      let buffer = '';
+
+      while (true) {
+        const { done, value } = await reader.read();
+        if (done) break;
+
+        buffer += decoder.decode(value, { stream: true });
+
+        // SSE lines arrive as "data: {...}\n\n" — split on double newline
+        const parts = buffer.split('\n\n');
+        buffer = parts.pop(); // keep any incomplete trailing chunk
+
+        for (const part of parts) {
+          const line = part.trim();
+          if (!line.startsWith('data:')) continue;
+
+          let evt;
+          try {
+            evt = JSON.parse(line.slice(5).trim());
+          } catch {
+            continue;
+          }
+
+          const { event, progress, message } = evt;
+
+          // ── Update progress bar and overlay ──────────────────────────────
+          if (typeof progress === 'number') {
+            setUploadProgress(progress);
+            if (setGlobalLoading) {
+              setGlobalLoading(prev => ({
+                ...prev,
+                progress,
+                message: message || prev.message
+              }));
+            }
+          }
+
+          // ── Update console log ────────────────────────────────────────────
+          if (message) {
+            setUploadLogs(prev => [...prev, message]);
+          }
+
+          // ── Handle terminal events ────────────────────────────────────────
+          if (event === 'completed') {
+            completed = true;
+            const data = evt;
+
+            setUploadProgress(100);
+            if (setGlobalLoading) {
+              setGlobalLoading(prev => ({ ...prev, progress: 100, message }));
+            }
+
+            setUploadLogs(prev => [
+              ...prev,
+              `✓ Inserted ${(data.total_rows_loaded || 0).toLocaleString()} rows into ${data.staging_table}.`
+            ]);
+            (data.processed_files || []).forEach(f => {
+              setUploadLogs(prev => [...prev, `   ↳ ${f.filename}: ${f.status} (${f.rows_loaded} rows)`]);
+            });
+
+            setTimeout(() => {
+              setGlobalLoading({ active: false, title: '', progress: 0, message: '' });
+            }, 1600);
+
+            setSelectedFiles([]);
+            if (onUploadSuccess) onUploadSuccess();
+
+          } else if (event === 'error') {
+            const errMsg = evt.message || 'Unknown ingestion error';
+            setUploadLogs(prev => [...prev, `✕ Error: ${errMsg}`]);
+            setUploadProgress(0);
+
+            if (setGlobalLoading) {
+              setGlobalLoading(prev => ({
+                ...prev,
+                progress: 0,
+                message: `✕ Ingestion Error: ${errMsg}`
+              }));
+              setTimeout(() => {
+                setGlobalLoading({ active: false, title: '', progress: 0, message: '' });
+              }, 2200);
+            }
+
+            if (errMsg.includes('Wrong file structure')) {
+              alert(`✕ WRONG FILE STRUCTURE DETECTED\n\n${errMsg.replace('Wrong file structure: ', '')}\n\nPlease check your spreadsheet columns and try again.`);
+            } else {
+              alert(`✕ INGESTION FAILURE\n\n${errMsg}`);
+            }
+          }
         }
       }
+
+      if (!completed) {
+        // Stream ended without a completed event — treat as unexpected
+        throw new Error('Server closed the stream without a completion signal.');
+      }
+
     } catch (err) {
-      clearStagingInterval();
       console.error(err);
-      const errMsg = err.response?.data?.detail || err.message || "Network timeout";
+      const errMsg = err.message || 'Network timeout';
       setUploadLogs(prev => [...prev, `✕ Error: ${errMsg}`]);
       setUploadProgress(0);
-      
+
       if (setGlobalLoading) {
         setGlobalLoading(prev => ({
           ...prev,
@@ -228,14 +211,8 @@ const FileUploader = ({ onUploadSuccess, setGlobalLoading, dbStatus }) => {
         }, 2000);
       }
 
-      // Beautiful flat B&W toast alert for structure/header validation failures
-      if (err.response?.status === 400 && errMsg.includes("Wrong file structure")) {
-        alert(`✕ WRONG FILE STRUCTURE DETECTED\n\n${errMsg.replace("Wrong file structure: ", "")}\n\nPlease check your spreadsheet columns and try again.`);
-      } else {
-        alert(`✕ INGESTION FAILURE\n\n${errMsg}`);
-      }
+      alert(`✕ INGESTION FAILURE\n\n${errMsg}`);
     } finally {
-      clearStagingInterval();
       setUploading(false);
     }
   };
