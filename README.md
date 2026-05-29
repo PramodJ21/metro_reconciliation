@@ -47,10 +47,18 @@ An executive-level transaction audit and reconciliation platform. The system ing
     ```
 4.  Configure environment variables:
     *   Duplicate `.env.example` and rename it to `.env`.
-    *   Update your connection URI under `DATABASE_URL` with your local PostgreSQL username and password:
+    *   Update your database credentials matching your local PostgreSQL configuration:
         ```env
-        DATABASE_URL=postgresql://<YOUR_USER>:<YOUR_PASSWORD>@localhost:5432/metro_reconciliation
+        # PostgreSQL Database Credentials
+        DB_USER=postgres
+        DB_PASSWORD=your_secure_password
+        DB_HOST=localhost
+        DB_PORT=5432
+        DB_NAME=metro_reconciliation
+
+        # Server Configuration
         PORT=8000
+        HOST=127.0.0.1
         ```
 5.  Start the API server:
     ```bash
