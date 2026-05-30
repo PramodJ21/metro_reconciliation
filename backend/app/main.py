@@ -495,41 +495,69 @@ def create_manual_refund(payload: ManualRefundRequestSchema, db: Session = Depen
     """
     Registers a manual refund in the manual_refunds table
     and updates the active status of the matched record in reconciliation_results.
+    Supports records with original status of 'Liable for Refund' or 'Discrepancy'.
     """
     try:
-        # 1. Insert into manual_refunds table
+        # 1. Find the active record to identify the original status
+        lookup_query = text("""
+            SELECT recon_status, amount FROM reconciliation_results
+            WHERE (NULLIF(order_id, '') = NULLIF(:order_id, '') OR (NULLIF(order_id, '') IS NULL AND NULLIF(:order_id, '') IS NULL))
+              AND (NULLIF(ticket_no, '') = NULLIF(:ticket_no, '') OR (NULLIF(ticket_no, '') IS NULL AND NULLIF(:ticket_no, '') IS NULL))
+              AND recon_status IN ('Liable for Refund', 'Discrepancy')
+            LIMIT 1
+        """)
+        record = db.execute(lookup_query, {
+            "order_id": payload.order_id or '',
+            "ticket_no": payload.ticket_no or ''
+        }).first()
+
+        if not record:
+            raise HTTPException(
+                status_code=404, 
+                detail="No matching transaction in 'Liable for Refund' or 'Discrepancy' status found in active results."
+            )
+
+        orig_status, db_amount = record
+        actual_amount = payload.amount if payload.amount is not None else (float(db_amount) if db_amount is not None else 0.0)
+
+        # 2. Insert into manual_refunds table
         insert_query = text("""
             INSERT INTO manual_refunds (order_id, ticket_no, amount, original_status, updated_status, note)
-            VALUES (:order_id, :ticket_no, :amount, 'Liable for Refund', 'Manually Refunded', :note)
+            VALUES (:order_id, :ticket_no, :amount, :original_status, 'Manually Refunded', :note)
         """)
         db.execute(insert_query, {
             "order_id": payload.order_id or '',
             "ticket_no": payload.ticket_no or '',
-            "amount": payload.amount or 0.0,
+            "amount": actual_amount,
+            "original_status": orig_status,
             "note": payload.note
         })
 
-        # 2. Update active reconciliation results
+        # 3. Update active reconciliation results
         update_query = text("""
-            UPDATE reconciliation_results r
+            UPDATE reconciliation_results
             SET recon_status = 'Manually Refunded',
                 notes = COALESCE(notes || ' | ', '') || 'Manual Refund: ' || :note
             WHERE (NULLIF(order_id, '') = NULLIF(:order_id, '') OR (NULLIF(order_id, '') IS NULL AND NULLIF(:order_id, '') IS NULL))
               AND (NULLIF(ticket_no, '') = NULLIF(:ticket_no, '') OR (NULLIF(ticket_no, '') IS NULL AND NULLIF(:ticket_no, '') IS NULL))
-              AND recon_status = 'Liable for Refund'
+              AND recon_status = :original_status
         """)
         update_res = db.execute(update_query, {
             "order_id": payload.order_id or '',
             "ticket_no": payload.ticket_no or '',
+            "original_status": orig_status,
             "note": payload.note
         })
         
         db.commit()
         return {
             "success": True,
-            "message": "Manual refund registered and applied successfully.",
+            "message": f"Manual refund registered and applied successfully from original status '{orig_status}'.",
             "updated_count": update_res.rowcount
         }
+    except HTTPException:
+        db.rollback()
+        raise
     except Exception as e:
         db.rollback()
         raise HTTPException(status_code=500, detail=f"Failed to record manual refund: {e}")

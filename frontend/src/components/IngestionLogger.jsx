@@ -213,6 +213,16 @@ const IngestionLogger = ({ ingestionLogs = [], onRevertSuccess, setGlobalLoading
     return `${mm}/${dd}/${yy} ${hh}:${min}:${ss}`;
   };
 
+  const getStatusClass = (status) => {
+    if (status === 'Settled') return 'status-pill settled';
+    if (status === 'Liable for Refund') return 'status-pill liable';
+    if (status === 'Failed Transaction') return 'status-pill failed';
+    if (status === 'Refunded') return 'status-pill refunded';
+    if (status === 'Manually Refunded') return 'status-pill manually-refunded';
+    if (status === 'Discrepancy') return 'status-pill discrepancy';
+    return 'status-pill';
+  };
+
   // Filter staged vs reverted logs
   const stagedLogs = (ingestionLogs || []).filter(log => log.status === 'STAGED');
   const revertedLogs = (ingestionLogs || []).filter(log => log.status === 'REVERTED');
@@ -867,25 +877,11 @@ const IngestionLogger = ({ ingestionLogs = [], onRevertSuccess, setGlobalLoading
                       {/* Transition Path action badge */}
                       <td style={{ padding: '1rem', borderRight: '1px solid #c6c6cd', verticalAlign: 'middle' }}>
                         <div style={{ display: 'flex', alignItems: 'center', gap: '0.4rem', flexWrap: 'wrap' }}>
-                          <span style={{
-                            padding: '0.15rem 0.45rem',
-                            fontSize: '11px',
-                            fontWeight: 700,
-                            backgroundColor: '#FEF3C7',
-                            border: '1px solid #f59e0b',
-                            color: '#B45309'
-                          }}>
+                          <span className={getStatusClass(log.original_status)}>
                             {log.original_status}
                           </span>
                           <span style={{ fontSize: '12px', color: '#76777d' }}>➔</span>
-                          <span style={{
-                            padding: '0.15rem 0.45rem',
-                            fontSize: '11px',
-                            fontWeight: 700,
-                            backgroundColor: '#E0F2FE',
-                            border: '1px solid #0284c7',
-                            color: '#0369a1'
-                          }}>
+                          <span className={getStatusClass(log.updated_status)}>
                             {log.updated_status}
                           </span>
                         </div>

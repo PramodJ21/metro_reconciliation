@@ -333,25 +333,14 @@ const ResultsBrowser = ({ refreshTrigger }) => {
 
   const totalPages = Math.max(1, Math.ceil(total / limit));
 
-  const getStatusStyle = (status) => {
-    const legend = STATUS_LEGEND.find(l => l.key === status);
-    if (!legend) return {};
-    return {
-      background: legend.bg,
-      border: `1px solid ${legend.border}`,
-      color: legend.color,
-      borderRadius: '0px',
-      fontSize: '0.72rem',
-      fontWeight: 700,
-      letterSpacing: '0.02em',
-      whiteSpace: 'nowrap',
-      display: 'inline-flex',
-      alignItems: 'center',
-      justifyContent: 'center',
-      width: '145px',
-      height: '24px',
-      boxSizing: 'border-box',
-    };
+  const getStatusClass = (status) => {
+    if (status === 'Settled') return 'status-pill settled';
+    if (status === 'Liable for Refund') return 'status-pill liable';
+    if (status === 'Failed Transaction') return 'status-pill failed';
+    if (status === 'Refunded') return 'status-pill refunded';
+    if (status === 'Manually Refunded') return 'status-pill manually-refunded';
+    if (status === 'Discrepancy') return 'status-pill discrepancy';
+    return 'status-pill';
   };
 
   const getAppLineStyle = (appName) => {
@@ -916,17 +905,17 @@ const ResultsBrowser = ({ refreshTrigger }) => {
                   </td>
                   <td style={{ padding: '1rem', borderRight: '1px solid #c6c6cd' }}>
                     <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '0.5rem' }}>
-                      <span style={getStatusStyle(row.recon_status)}>
+                      <span className={getStatusClass(row.recon_status)}>
                         {row.recon_status}
                       </span>
-                      {row.recon_status === 'Liable for Refund' && (
+                      {(row.recon_status === 'Liable for Refund' || row.recon_status === 'Discrepancy') && (
                         <button
                           type="button"
                           onClick={() => setManualRefundTarget(row)}
                           style={{
                             background: 'none',
                             border: 'none',
-                            color: '#B45309',
+                            color: row.recon_status === 'Liable for Refund' ? '#B45309' : '#475569',
                             cursor: 'pointer',
                             display: 'inline-flex',
                             alignItems: 'center',
@@ -935,7 +924,7 @@ const ResultsBrowser = ({ refreshTrigger }) => {
                             borderRadius: '4px',
                             transition: 'background-color 0.15s ease'
                           }}
-                          onMouseOver={e => e.currentTarget.style.backgroundColor = 'rgba(180, 83, 9, 0.08)'}
+                          onMouseOver={e => e.currentTarget.style.backgroundColor = row.recon_status === 'Liable for Refund' ? 'rgba(180, 83, 9, 0.08)' : 'rgba(71, 85, 105, 0.08)'}
                           onMouseOut={e => e.currentTarget.style.backgroundColor = 'transparent'}
                           title="Mark as Manually Refunded"
                         >

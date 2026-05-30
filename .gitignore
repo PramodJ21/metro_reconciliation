@@ -12,6 +12,7 @@ __pycache__/
 *.pyc
 *.pyo
 *.pyd
+*.zip
 .pytest_cache/
 venv/
 .venv/
@@ -32,3 +33,6 @@ yarn-error.log*
 # OS specific files
 .DS_Store
 Thumbs.db
+
+# AI Assistant Context File
+/GEMINI.md

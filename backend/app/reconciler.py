@@ -265,7 +265,7 @@ def run_reconciliation_process() -> List[Dict[str, Any]]:
         FROM manual_refunds m
         WHERE (NULLIF(r.order_id, '') = NULLIF(m.order_id, '') OR (NULLIF(r.order_id, '') IS NULL AND NULLIF(m.order_id, '') IS NULL))
           AND (NULLIF(r.ticket_no, '') = NULLIF(m.ticket_no, '') OR (NULLIF(r.ticket_no, '') IS NULL AND NULLIF(m.ticket_no, '') IS NULL))
-          AND r.recon_status = 'Liable for Refund';
+          AND r.recon_status = m.original_status;
         """
         conn.execute(text(apply_refunds_query))
         

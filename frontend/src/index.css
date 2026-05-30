@@ -21,6 +21,10 @@
   --status-failed-bg: #FEE2E2;
   --status-refunded-text: #6B21A8;
   --status-refunded-bg: #F3E8FF;
+  --status-manual-text: #0369a1;
+  --status-manual-bg: #E0F2FE;
+  --status-discrepancy-text: #475569;
+  --status-discrepancy-bg: #F1F5F9;
 
   /* Line Accents */
   --line-blue: #3B82F6;
@@ -541,17 +545,24 @@ tr.selected-row td {
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  font-size: 0.75rem;
+  font-size: 0.72rem;
   font-weight: 700;
-  padding: 0.3rem 0.75rem;
+  padding: 0.2rem 0.55rem;
   border-radius: 0px;
-  text-transform: uppercase;
+  letter-spacing: 0.02em;
+  white-space: nowrap;
+  border: 1px solid transparent;
+  width: 145px;
+  height: 24px;
+  box-sizing: border-box;
 }
 
-.status-pill.settled { color: var(--status-settled-text); background-color: var(--status-settled-bg); }
-.status-pill.liable { color: var(--status-liable-text); background-color: var(--status-liable-bg); }
-.status-pill.failed { color: var(--status-failed-text); background-color: var(--status-failed-bg); }
-.status-pill.refunded { color: var(--status-refunded-text); background-color: var(--status-refunded-bg); }
+.status-pill.settled { color: var(--status-settled-text); background-color: var(--status-settled-bg); border-color: #10b981; }
+.status-pill.liable { color: var(--status-liable-text); background-color: var(--status-liable-bg); border-color: #f59e0b; }
+.status-pill.failed { color: var(--status-failed-text); background-color: var(--status-failed-bg); border-color: #ef4444; }
+.status-pill.refunded { color: var(--status-refunded-text); background-color: var(--status-refunded-bg); border-color: #8b5cf6; }
+.status-pill.manually-refunded { color: var(--status-manual-text); background-color: var(--status-manual-bg); border-color: #0284c7; }
+.status-pill.discrepancy { color: var(--status-discrepancy-text); background-color: var(--status-discrepancy-bg); border-color: #94a3b8; }
 
 /* 5. Pagination controls style */
 .pagination-footer {
