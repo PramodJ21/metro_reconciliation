@@ -34,48 +34,49 @@ const Dashboard = ({ dbStatus, summaries = [] }) => {
   const mc3 = getAppSummary('MetroConnect3');
   const ondc = getAppSummary('ONDC');
 
-  // Dynamic formatting for counts (matching screenshot metrics e.g. 1.2M, 850K)
+  // Dynamic formatting for counts in Indian Numbering System (Lakh / Crore)
   const formatCount = (num) => {
-    if (num >= 1000000) {
-      return (num / 1000000).toFixed(1).replace(/\.0$/, '') + 'M';
+    if (num >= 10000000) { // 1 Crore = 10,000,000
+      return (num / 10000000).toFixed(2).replace(/\.00$/, '') + ' Cr';
     }
-    if (num >= 1000) {
-      return (num / 1000).toFixed(1).replace(/\.0$/, '') + 'K';
+    if (num >= 100000) { // 1 Lakh = 100,000
+      return (num / 100000).toFixed(2).replace(/\.00$/, '') + ' L';
     }
-    return num.toString();
+    return new Intl.NumberFormat('en-IN').format(num);
   };
 
-  // Dynamic formatting for Rupees (matching screenshot metrics e.g. ₹14.2M, ₹9.8M)
+  // Dynamic formatting for Rupees in Indian Numbering System (Lakh / Crore)
   const formatRupeeAbbr = (val) => {
-    if (val >= 1000000) {
-      return `₹${(val / 1000000).toFixed(1).replace(/\.0$/, '')}M`;
+    if (val >= 10000000) { // 1 Crore = 10,000,000
+      return `₹${(val / 10000000).toFixed(2).replace(/\.00$/, '')} Cr`;
     }
-    if (val >= 1000) {
-      return `₹${(val / 1000).toFixed(1).replace(/\.0$/, '')}K`;
+    if (val >= 100000) { // 1 Lakh = 100,000
+      return `₹${(val / 100000).toFixed(2).replace(/\.00$/, '')} L`;
     }
-    return `₹${(val || 0).toLocaleString(undefined, { minimumFractionDigits: 0, maximumFractionDigits: 0 })}`;
+    return new Intl.NumberFormat('en-IN', { style: 'currency', currency: 'INR', maximumFractionDigits: 0 }).format(val || 0);
   };
+
 
   const getAppLineStyle = (appName) => {
     const name = appName ? appName.toLowerCase() : '';
     if (name.includes('connect')) {
       return {
-        backgroundColor: '#d8e2ff',
-        color: '#001a42',
-        border: '1px solid #adc6ff'
+        backgroundColor: '#e0f2fe',
+        color: '#0369a1',
+        border: '1px solid #93c5fd'
       };
     } else if (name.includes('mumbai') || name.includes('one')) {
       return {
-        backgroundColor: '#dfe3e7',
-        color: '#171c1f',
-        border: '1px solid #c6c6cd'
+        backgroundColor: '#eef2ff',
+        color: '#4338ca',
+        border: '1px solid #c7d2fe'
       };
     } else {
-      // ONDC
+      // ONDC Hub (Distinct Salmon/Peach tint)
       return {
-        backgroundColor: '#ffdbca',
-        color: '#341100',
-        border: '1px solid #ffb690'
+        backgroundColor: '#ffecd2',
+        color: '#7c2d12',
+        border: '1px solid #fdba74'
       };
     }
   };
@@ -94,11 +95,11 @@ const Dashboard = ({ dbStatus, summaries = [] }) => {
       <section>
         <div style={{ display: 'flex', alignItems: 'center', marginBottom: '1.5rem' }}>
           <h3 style={{
-            fontSize: '14px',
+            fontSize: '16px',
             lineHeight: '1',
-            letterSpacing: '0.1em',
-            fontWeight: '600',
-            color: '#45464D',
+            letterSpacing: '0.08em',
+            fontWeight: '700',
+            color: '#0F172A',
             textTransform: 'uppercase',
             marginRight: '1rem',
             whiteSpace: 'nowrap'
@@ -117,15 +118,16 @@ const Dashboard = ({ dbStatus, summaries = [] }) => {
           <div className="bg-surface-container-lowest" style={{ 
             display: 'flex', 
             flexDirection: 'column', 
-            padding: '1.5rem', 
+            padding: '1.25rem 1.5rem', 
             border: '1px solid #C6C6CD', 
+            borderLeft: '4px solid #64748B',
             borderRadius: '0px',
             backgroundColor: '#ffffff'
           }}>
-            <span style={{ fontSize: '12px', lineHeight: '1', letterSpacing: '0.05em', fontWeight: '500', color: '#45464D', marginBottom: '0.5rem' }}>
+            <span style={{ fontSize: '10px', lineHeight: '1', letterSpacing: '0.06em', fontWeight: '700', color: '#64748B', textTransform: 'uppercase', marginBottom: '0.5rem' }}>
               Total Transactions
             </span>
-            <span style={{ fontSize: '32px', lineHeight: '1.2', letterSpacing: '0.03em', fontWeight: '600', color: '#000000' }}>
+            <span style={{ fontSize: '32px', lineHeight: '1.2', letterSpacing: '0.03em', fontWeight: '600', color: '#0F172A' }}>
               {formatCount(totalRecords)}
             </span>
           </div>
@@ -134,15 +136,16 @@ const Dashboard = ({ dbStatus, summaries = [] }) => {
           <div className="bg-surface-container-lowest" style={{ 
             display: 'flex', 
             flexDirection: 'column', 
-            padding: '1.5rem', 
+            padding: '1.25rem 1.5rem', 
             border: '1px solid #C6C6CD', 
+            borderLeft: '4px solid #10B981',
             borderRadius: '0px',
             backgroundColor: '#ffffff'
           }}>
-            <span style={{ fontSize: '12px', lineHeight: '1', letterSpacing: '0.05em', fontWeight: '500', color: '#45464D', marginBottom: '0.5rem' }}>
+            <span style={{ fontSize: '10px', lineHeight: '1', letterSpacing: '0.06em', fontWeight: '700', color: '#64748B', textTransform: 'uppercase', marginBottom: '0.5rem' }}>
               Settled Transactions
             </span>
-            <span style={{ fontSize: '32px', lineHeight: '1.2', letterSpacing: '0.03em', fontWeight: '600', color: '#0058be' }}>
+            <span style={{ fontSize: '32px', lineHeight: '1.2', letterSpacing: '0.03em', fontWeight: '600', color: '#047857' }}>
               {formatCount(totalSettled)}
             </span>
           </div>
@@ -151,15 +154,16 @@ const Dashboard = ({ dbStatus, summaries = [] }) => {
           <div className="bg-surface-container-lowest" style={{ 
             display: 'flex', 
             flexDirection: 'column', 
-            padding: '1.5rem', 
+            padding: '1.25rem 1.5rem', 
             border: '1px solid #C6C6CD', 
+            borderLeft: '4px solid #F59E0B',
             borderRadius: '0px',
             backgroundColor: '#ffffff'
           }}>
-            <span style={{ fontSize: '12px', lineHeight: '1', letterSpacing: '0.05em', fontWeight: '500', color: '#45464D', marginBottom: '0.5rem' }}>
+            <span style={{ fontSize: '10px', lineHeight: '1', letterSpacing: '0.06em', fontWeight: '700', color: '#64748B', textTransform: 'uppercase', marginBottom: '0.5rem' }}>
               Refund Liable
             </span>
-            <span style={{ fontSize: '32px', lineHeight: '1.2', letterSpacing: '0.03em', fontWeight: '600', color: '#ba1a1a' }}>
+            <span style={{ fontSize: '32px', lineHeight: '1.2', letterSpacing: '0.03em', fontWeight: '600', color: '#B45309' }}>
               {formatCount(totalLiable)}
             </span>
           </div>
@@ -168,15 +172,16 @@ const Dashboard = ({ dbStatus, summaries = [] }) => {
           <div className="bg-surface-container-lowest" style={{ 
             display: 'flex', 
             flexDirection: 'column', 
-            padding: '1.5rem', 
+            padding: '1.25rem 1.5rem', 
             border: '1px solid #C6C6CD', 
+            borderLeft: '4px solid #3B82F6',
             borderRadius: '0px',
             backgroundColor: '#ffffff'
           }}>
-            <span style={{ fontSize: '12px', lineHeight: '1', letterSpacing: '0.05em', fontWeight: '500', color: '#45464D', marginBottom: '0.5rem' }}>
+            <span style={{ fontSize: '10px', lineHeight: '1', letterSpacing: '0.06em', fontWeight: '700', color: '#64748B', textTransform: 'uppercase', marginBottom: '0.5rem' }}>
               Refunded
             </span>
-            <span style={{ fontSize: '32px', lineHeight: '1.2', letterSpacing: '0.03em', fontWeight: '600', color: '#000000' }}>
+            <span style={{ fontSize: '32px', lineHeight: '1.2', letterSpacing: '0.03em', fontWeight: '600', color: '#1D4ED8' }}>
               {formatCount(totalRefunded)}
             </span>
           </div>
@@ -185,15 +190,16 @@ const Dashboard = ({ dbStatus, summaries = [] }) => {
           <div className="bg-surface-container-lowest" style={{ 
             display: 'flex', 
             flexDirection: 'column', 
-            padding: '1.5rem', 
+            padding: '1.25rem 1.5rem', 
             border: '1px solid #C6C6CD', 
+            borderLeft: '4px solid #EF4444',
             borderRadius: '0px',
             backgroundColor: '#ffffff'
           }}>
-            <span style={{ fontSize: '12px', lineHeight: '1', letterSpacing: '0.05em', fontWeight: '500', color: '#45464D', marginBottom: '0.5rem' }}>
+            <span style={{ fontSize: '10px', lineHeight: '1', letterSpacing: '0.06em', fontWeight: '700', color: '#64748B', textTransform: 'uppercase', marginBottom: '0.5rem' }}>
               Incomplete
             </span>
-            <span style={{ fontSize: '32px', lineHeight: '1.2', letterSpacing: '0.03em', fontWeight: '600', color: '#d95f00' }}>
+            <span style={{ fontSize: '32px', lineHeight: '1.2', letterSpacing: '0.03em', fontWeight: '600', color: '#B91C1C' }}>
               {formatCount(totalFailed)}
             </span>
           </div>
@@ -204,11 +210,11 @@ const Dashboard = ({ dbStatus, summaries = [] }) => {
       <section>
         <div style={{ display: 'flex', alignItems: 'center', marginBottom: '1.5rem' }}>
           <h3 style={{
-            fontSize: '14px',
+            fontSize: '16px',
             lineHeight: '1',
-            letterSpacing: '0.1em',
-            fontWeight: '600',
-            color: '#45464D',
+            letterSpacing: '0.08em',
+            fontWeight: '700',
+            color: '#0F172A',
             textTransform: 'uppercase',
             marginRight: '1rem',
             whiteSpace: 'nowrap'
@@ -218,54 +224,54 @@ const Dashboard = ({ dbStatus, summaries = [] }) => {
           <div style={{ flex: 1, height: '1px', backgroundColor: '#C6C6CD' }}></div>
         </div>
 
-        <div className="revenue-summary-wrapper">
-          <div className="revenue-summary-grid">
+        <div className="revenue-summary-wrapper" style={{ border: '1px solid #C6C6CD', padding: '1.5rem', backgroundColor: '#ffffff' }}>
+          <div className="revenue-summary-grid" style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(150px, 1fr))', gap: '1.5rem' }}>
             {/* Column 1: Total AFC Revenue */}
-            <div className="revenue-summary-col">
-              <span style={{ fontSize: '12px', lineHeight: '1', letterSpacing: '0.05em', fontWeight: '500', color: '#45464D', marginBottom: '0.5rem' }}>
+            <div style={{ borderLeft: '3px solid #64748B', paddingLeft: '1rem', display: 'flex', flexDirection: 'column' }}>
+              <span style={{ fontSize: '10px', lineHeight: '1', letterSpacing: '0.06em', fontWeight: '700', color: '#64748B', textTransform: 'uppercase', marginBottom: '0.5rem' }}>
                 Total AFC Revenue
               </span>
-              <span style={{ fontSize: '24px', lineHeight: '1.2', letterSpacing: '0.02em', fontWeight: '600', color: '#000000' }}>
+              <span style={{ fontSize: '24px', lineHeight: '1.2', letterSpacing: '0.02em', fontWeight: '600', color: '#0F172A' }}>
                 {formatRupeeAbbr(totalAfcRevenue)}
               </span>
             </div>
 
             {/* Column 2: Total Mobile Revenue */}
-            <div className="revenue-summary-col">
-              <span style={{ fontSize: '12px', lineHeight: '1', letterSpacing: '0.05em', fontWeight: '500', color: '#45464D', marginBottom: '0.5rem' }}>
+            <div style={{ borderLeft: '3px solid #64748B', paddingLeft: '1rem', display: 'flex', flexDirection: 'column' }}>
+              <span style={{ fontSize: '10px', lineHeight: '1', letterSpacing: '0.06em', fontWeight: '700', color: '#64748B', textTransform: 'uppercase', marginBottom: '0.5rem' }}>
                 Total Mobile Revenue
               </span>
-              <span style={{ fontSize: '24px', lineHeight: '1.2', letterSpacing: '0.02em', fontWeight: '600', color: '#000000' }}>
+              <span style={{ fontSize: '24px', lineHeight: '1.2', letterSpacing: '0.02em', fontWeight: '600', color: '#0F172A' }}>
                 {formatRupeeAbbr(totalMobileRevenue)}
               </span>
             </div>
 
             {/* Column 3: Total Settled Revenue */}
-            <div className="revenue-summary-col">
-              <span style={{ fontSize: '12px', lineHeight: '1', letterSpacing: '0.05em', fontWeight: '500', color: '#45464D', marginBottom: '0.5rem' }}>
+            <div style={{ borderLeft: '3px solid #10B981', paddingLeft: '1rem', display: 'flex', flexDirection: 'column' }}>
+              <span style={{ fontSize: '10px', lineHeight: '1', letterSpacing: '0.06em', fontWeight: '700', color: '#64748B', textTransform: 'uppercase', marginBottom: '0.5rem' }}>
                 Total Settled Revenue
               </span>
-              <span style={{ fontSize: '24px', lineHeight: '1.2', letterSpacing: '0.02em', fontWeight: '600', color: '#0058be' }}>
+              <span style={{ fontSize: '24px', lineHeight: '1.2', letterSpacing: '0.02em', fontWeight: '600', color: '#047857' }}>
                 {formatRupeeAbbr(totalSettledRevenue)}
               </span>
             </div>
 
             {/* Column 4: Total Refund Amount */}
-            <div className="revenue-summary-col">
-              <span style={{ fontSize: '12px', lineHeight: '1', letterSpacing: '0.05em', fontWeight: '500', color: '#45464D', marginBottom: '0.5rem' }}>
+            <div style={{ borderLeft: '3px solid #64748B', paddingLeft: '1rem', display: 'flex', flexDirection: 'column' }}>
+              <span style={{ fontSize: '10px', lineHeight: '1', letterSpacing: '0.06em', fontWeight: '700', color: '#64748B', textTransform: 'uppercase', marginBottom: '0.5rem' }}>
                 Total Refund Amount
               </span>
-              <span style={{ fontSize: '24px', lineHeight: '1.2', letterSpacing: '0.02em', fontWeight: '600', color: '#ba1a1a' }}>
+              <span style={{ fontSize: '24px', lineHeight: '1.2', letterSpacing: '0.02em', fontWeight: '600', color: '#0F172A' }}>
                 {formatRupeeAbbr(totalRefundAmount)}
               </span>
             </div>
 
             {/* Column 5: Net Revenue Balance */}
-            <div className="revenue-summary-col">
-              <span style={{ fontSize: '12px', lineHeight: '1', letterSpacing: '0.05em', fontWeight: '500', color: '#45464D', marginBottom: '0.5rem' }}>
+            <div style={{ borderLeft: '3px solid #3B82F6', paddingLeft: '1rem', display: 'flex', flexDirection: 'column' }}>
+              <span style={{ fontSize: '10px', lineHeight: '1', letterSpacing: '0.06em', fontWeight: '700', color: '#64748B', textTransform: 'uppercase', marginBottom: '0.5rem' }}>
                 Net Revenue Balance
               </span>
-              <span style={{ fontSize: '24px', lineHeight: '1.2', letterSpacing: '0.02em', fontWeight: '700', color: '#000000' }}>
+              <span style={{ fontSize: '24px', lineHeight: '1.2', letterSpacing: '0.02em', fontWeight: '700', color: '#1D4ED8' }}>
                 {formatRupeeAbbr(netRevenue)}
               </span>
             </div>
@@ -277,11 +283,11 @@ const Dashboard = ({ dbStatus, summaries = [] }) => {
       <section>
         <div style={{ display: 'flex', alignItems: 'center', marginBottom: '1.5rem' }}>
           <h3 style={{
-            fontSize: '14px',
+            fontSize: '16px',
             lineHeight: '1',
-            letterSpacing: '0.1em',
-            fontWeight: '600',
-            color: '#45464D',
+            letterSpacing: '0.08em',
+            fontWeight: '700',
+            color: '#0F172A',
             textTransform: 'uppercase',
             marginRight: '1rem',
             whiteSpace: 'nowrap'
@@ -332,10 +338,14 @@ const Dashboard = ({ dbStatus, summaries = [] }) => {
                   <tr className="staged-row-hover" style={{ borderBottom: '1px solid #c6c6cd', transition: 'background-color 0.15s ease', verticalAlign: 'middle' }}>
                     <td style={{ padding: '1rem', borderRight: '1px solid #c6c6cd' }}>
                       <span style={{
-                        display: 'inline-block',
-                        padding: '0.25rem 0.5rem',
-                        fontSize: '12px',
-                        fontFamily: 'Outfit, sans-serif',
+                        display: 'inline-flex',
+                        alignItems: 'center',
+                        justifyContent: 'center',
+                        width: '115px',
+                        height: '24px',
+                        boxSizing: 'border-box',
+                        fontSize: '11px',
+                        fontFamily: "'Outfit', 'Inter', -apple-system, sans-serif",
                         fontWeight: 600,
                         letterSpacing: '0.02em',
                         ...getAppLineStyle('MetroConnect3')
@@ -344,13 +354,13 @@ const Dashboard = ({ dbStatus, summaries = [] }) => {
                       </span>
                     </td>
                     <td style={{ padding: '1rem', borderRight: '1px solid #c6c6cd', textAlign: 'right', fontFamily: 'ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace', fontWeight: 600, color: '#000000' }}>
-                      {mc3.total_records.toLocaleString()}
+                      {formatCount(mc3.total_records)}
                     </td>
                     <td style={{ padding: '1rem', borderRight: '1px solid #c6c6cd', textAlign: 'right', fontFamily: 'ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace', fontWeight: 600, color: '#000000' }}>
                       {formatRupeeAbbr(mc3.revenue)}
                     </td>
                     <td style={{ padding: '1rem', borderRight: '1px solid #c6c6cd', textAlign: 'right', fontFamily: 'ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace', fontWeight: 600, color: '#000000' }}>
-                      {mc3.refunded.toLocaleString()}
+                      {formatCount(mc3.refunded)}
                     </td>
                     <td style={{ padding: '1rem', textAlign: 'right', fontFamily: 'ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace', fontWeight: 600, color: '#000000' }}>
                       {formatRupeeAbbr(mc3.refund_amount)}
@@ -361,10 +371,14 @@ const Dashboard = ({ dbStatus, summaries = [] }) => {
                   <tr className="staged-row-hover" style={{ borderBottom: '1px solid #c6c6cd', transition: 'background-color 0.15s ease', verticalAlign: 'middle' }}>
                     <td style={{ padding: '1rem', borderRight: '1px solid #c6c6cd' }}>
                       <span style={{
-                        display: 'inline-block',
-                        padding: '0.25rem 0.5rem',
-                        fontSize: '12px',
-                        fontFamily: 'Outfit, sans-serif',
+                        display: 'inline-flex',
+                        alignItems: 'center',
+                        justifyContent: 'center',
+                        width: '115px',
+                        height: '24px',
+                        boxSizing: 'border-box',
+                        fontSize: '11px',
+                        fontFamily: "'Outfit', 'Inter', -apple-system, sans-serif",
                         fontWeight: 600,
                         letterSpacing: '0.02em',
                         ...getAppLineStyle('MumbaiOne')
@@ -373,13 +387,13 @@ const Dashboard = ({ dbStatus, summaries = [] }) => {
                       </span>
                     </td>
                     <td style={{ padding: '1rem', borderRight: '1px solid #c6c6cd', textAlign: 'right', fontFamily: 'ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace', fontWeight: 600, color: '#000000' }}>
-                      {m1.total_records.toLocaleString()}
+                      {formatCount(m1.total_records)}
                     </td>
                     <td style={{ padding: '1rem', borderRight: '1px solid #c6c6cd', textAlign: 'right', fontFamily: 'ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace', fontWeight: 600, color: '#000000' }}>
                       {formatRupeeAbbr(m1.revenue)}
                     </td>
                     <td style={{ padding: '1rem', borderRight: '1px solid #c6c6cd', textAlign: 'right', fontFamily: 'ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace', fontWeight: 600, color: '#000000' }}>
-                      {m1.refunded.toLocaleString()}
+                      {formatCount(m1.refunded)}
                     </td>
                     <td style={{ padding: '1rem', textAlign: 'right', fontFamily: 'ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace', fontWeight: 600, color: '#000000' }}>
                       {formatRupeeAbbr(m1.refund_amount)}
@@ -390,10 +404,14 @@ const Dashboard = ({ dbStatus, summaries = [] }) => {
                   <tr className="staged-row-hover" style={{ transition: 'background-color 0.15s ease', verticalAlign: 'middle' }}>
                     <td style={{ padding: '1rem', borderRight: '1px solid #c6c6cd' }}>
                       <span style={{
-                        display: 'inline-block',
-                        padding: '0.25rem 0.5rem',
-                        fontSize: '12px',
-                        fontFamily: 'Outfit, sans-serif',
+                        display: 'inline-flex',
+                        alignItems: 'center',
+                        justifyContent: 'center',
+                        width: '115px',
+                        height: '24px',
+                        boxSizing: 'border-box',
+                        fontSize: '11px',
+                        fontFamily: "'Outfit', 'Inter', -apple-system, sans-serif",
                         fontWeight: 600,
                         letterSpacing: '0.02em',
                         ...getAppLineStyle('ONDC')
@@ -402,13 +420,13 @@ const Dashboard = ({ dbStatus, summaries = [] }) => {
                       </span>
                     </td>
                     <td style={{ padding: '1rem', borderRight: '1px solid #c6c6cd', textAlign: 'right', fontFamily: 'ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace', fontWeight: 600, color: '#000000' }}>
-                      {ondc.total_records.toLocaleString()}
+                      {formatCount(ondc.total_records)}
                     </td>
                     <td style={{ padding: '1rem', borderRight: '1px solid #c6c6cd', textAlign: 'right', fontFamily: 'ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace', fontWeight: 600, color: '#000000' }}>
                       {formatRupeeAbbr(ondc.revenue)}
                     </td>
                     <td style={{ padding: '1rem', borderRight: '1px solid #c6c6cd', textAlign: 'right', fontFamily: 'ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace', fontWeight: 600, color: '#000000' }}>
-                      {ondc.refunded.toLocaleString()}
+                      {formatCount(ondc.refunded)}
                     </td>
                     <td style={{ padding: '1rem', textAlign: 'right', fontFamily: 'ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace', fontWeight: 600, color: '#000000' }}>
                       {formatRupeeAbbr(ondc.refund_amount)}

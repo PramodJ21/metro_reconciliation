@@ -151,7 +151,7 @@ const FileUploader = ({ onUploadSuccess, setGlobalLoading, dbStatus }) => {
 
             setUploadLogs(prev => [
               ...prev,
-              `✓ Inserted ${(data.total_rows_loaded || 0).toLocaleString()} rows into ${data.staging_table}.`
+              `✓ Inserted ${new Intl.NumberFormat('en-IN').format(data.total_rows_loaded || 0)} rows into ${data.staging_table}.`
             ]);
             (data.processed_files || []).forEach(f => {
               setUploadLogs(prev => [...prev, `   ↳ ${f.filename}: ${f.status} (${f.rows_loaded} rows)`]);
@@ -254,7 +254,7 @@ const FileUploader = ({ onUploadSuccess, setGlobalLoading, dbStatus }) => {
               </span>
               <p style={{ fontSize: '0.8rem', color: 'var(--text-muted)', margin: '0.2rem 0 0 0' }}>
                 {dbStatus?.connected 
-                  ? `All staging pipelines connected. Database is online and holding ${totalStagedRows.toLocaleString()} staged rows.` 
+                  ? `All staging pipelines connected. Database is online and holding ${new Intl.NumberFormat('en-IN').format(totalStagedRows)} staged rows.` 
                   : 'Failed to establish connection to PostgreSQL local database. Please check your credentials in .env.'}
               </p>
             </div>
@@ -262,7 +262,7 @@ const FileUploader = ({ onUploadSuccess, setGlobalLoading, dbStatus }) => {
           {dbStatus?.connected && (
             <div style={{ padding: '0.25rem 0.75rem', background: 'var(--color-neutral)', borderRadius: '0px', textAlign: 'center' }}>
               <div style={{ fontSize: '0.65rem', fontWeight: 700, color: 'var(--text-muted)', textTransform: 'uppercase' }}>Staged Rows</div>
-              <div style={{ fontSize: '0.95rem', fontWeight: 800, color: 'var(--color-primary)' }}>{totalStagedRows.toLocaleString()}</div>
+              <div style={{ fontSize: '0.95rem', fontWeight: 800, color: 'var(--color-primary)' }}>{new Intl.NumberFormat('en-IN').format(totalStagedRows)}</div>
             </div>
           )}
         </div>
@@ -352,12 +352,40 @@ const FileUploader = ({ onUploadSuccess, setGlobalLoading, dbStatus }) => {
           </div>
         )}
 
-        {/* Action Button styled as the styleguide's secondary button or black button */}
+        {/* Action Button styled to match the primary Trigger Classify navy/black button */}
         <button 
           type="submit" 
-          className="btn-primary-black"
           disabled={selectedFiles.length === 0 || uploading}
-          style={{ width: '100%', justifyContent: 'center' }}
+          style={{
+            width: '100%',
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+            gap: '0.5rem',
+            padding: '0.75rem 1.5rem',
+            fontFamily: "'Outfit', sans-serif",
+            fontWeight: 700,
+            fontSize: '0.8rem',
+            letterSpacing: '0.06em',
+            textTransform: 'uppercase',
+            border: 'none',
+            borderRadius: '0px',
+            backgroundColor: '#0F172A',
+            color: '#ffffff',
+            opacity: (selectedFiles.length === 0 || uploading) ? 0.35 : 1,
+            cursor: (selectedFiles.length === 0 || uploading) ? 'not-allowed' : 'pointer',
+            transition: 'all 0.15s ease',
+          }}
+          onMouseOver={e => {
+            if (selectedFiles.length > 0 && !uploading) {
+              e.currentTarget.style.backgroundColor = '#1E293B';
+            }
+          }}
+          onMouseOut={e => {
+            if (selectedFiles.length > 0 && !uploading) {
+              e.currentTarget.style.backgroundColor = '#0F172A';
+            }
+          }}
         >
           {uploading ? 'Transmitting Packets...' : `Stage ${selectedFiles.length} Selected File(s)`}
         </button>

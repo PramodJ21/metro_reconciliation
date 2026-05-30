@@ -193,6 +193,20 @@ def execute_ddl():
         "CREATE INDEX IF NOT EXISTS idx_recon_res_ord_tkt ON reconciliation_results(order_id, ticket_no);",
         # Migration: add data_sources column to existing DBs
         "ALTER TABLE reconciliation_results ADD COLUMN IF NOT EXISTS data_sources VARCHAR;",
+        # 8. Manual Refunds Table (Audit Log of Tag Updates)
+        """
+        CREATE TABLE IF NOT EXISTS manual_refunds (
+            id SERIAL PRIMARY KEY,
+            order_id VARCHAR,
+            ticket_no VARCHAR,
+            amount NUMERIC,
+            original_status VARCHAR DEFAULT 'Liable for Refund',
+            updated_status VARCHAR DEFAULT 'Manually Refunded',
+            note VARCHAR,
+            updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+        );
+        """,
+        "CREATE INDEX IF NOT EXISTS idx_man_ref_ord_tkt ON manual_refunds(order_id, ticket_no);",
         # Convert all staging tables to UNLOGGED for massive insertion speedup (WAL bypass)
         "ALTER TABLE stg_mobile_mumbaione SET UNLOGGED;",
         "ALTER TABLE stg_mobile_metroconnect3 SET UNLOGGED;",

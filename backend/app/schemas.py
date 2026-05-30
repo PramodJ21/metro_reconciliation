@@ -54,3 +54,23 @@ class DatabaseStatusSchema(BaseModel):
 class RevertRequestSchema(BaseModel):
     log_id: int
 
+
+class ManualRefundRequestSchema(BaseModel):
+    order_id: Optional[str] = None
+    ticket_no: Optional[str] = None
+    amount: Optional[float] = None
+    note: str
+
+class ManualRefundLogSchema(BaseModel):
+    id: int
+    order_id: Optional[str] = None
+    ticket_no: Optional[str] = None
+    amount: Optional[float] = None
+    original_status: str
+    updated_status: str
+    note: str
+    updated_at: datetime
+
+    class Config:
+        from_attributes = True
+

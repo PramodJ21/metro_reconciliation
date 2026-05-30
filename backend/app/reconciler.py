@@ -256,6 +256,19 @@ def run_reconciliation_process() -> List[Dict[str, Any]]:
         """
         conn.execute(text(ondc_query))
         
+        # 4. Apply Persistent Manual Tag Updates
+        print("Applying persistent manual refunds...")
+        apply_refunds_query = """
+        UPDATE reconciliation_results r
+        SET recon_status = m.updated_status,
+            notes = COALESCE(r.notes || ' | ', '') || 'Manual Refund: ' || m.note
+        FROM manual_refunds m
+        WHERE (NULLIF(r.order_id, '') = NULLIF(m.order_id, '') OR (NULLIF(r.order_id, '') IS NULL AND NULLIF(m.order_id, '') IS NULL))
+          AND (NULLIF(r.ticket_no, '') = NULLIF(m.ticket_no, '') OR (NULLIF(r.ticket_no, '') IS NULL AND NULLIF(m.ticket_no, '') IS NULL))
+          AND r.recon_status = 'Liable for Refund';
+        """
+        conn.execute(text(apply_refunds_query))
+        
         print("Reconciliation classifying completed.")
 
     # 5. Calculate summaries
@@ -276,12 +289,12 @@ def get_reconciliation_summaries() -> List[Dict[str, Any]]:
                     COUNT(CASE WHEN recon_status = 'Settled' THEN 1 END) as settled,
                     COUNT(CASE WHEN recon_status = 'Liable for Refund' THEN 1 END) as liable_for_refund,
                     COUNT(CASE WHEN recon_status = 'Failed Transaction' THEN 1 END) as failed_transaction,
-                    COUNT(CASE WHEN recon_status = 'Refunded' THEN 1 END) as refunded,
+                    COUNT(CASE WHEN recon_status IN ('Refunded', 'Manually Refunded') THEN 1 END) as refunded,
                     COUNT(CASE WHEN recon_status = 'Discrepancy' THEN 1 END) as discrepancy,
                     COALESCE(SUM(amount), 0) as revenue,
                     COALESCE(SUM(CASE WHEN recon_status = 'Settled' THEN amount ELSE 0 END), 0) as settled_revenue,
                     COALESCE(SUM(CASE WHEN data_sources LIKE '%AFC%' THEN amount ELSE 0 END), 0) as afc_revenue,
-                    COALESCE(SUM(CASE WHEN recon_status = 'Refunded' THEN amount ELSE 0 END), 0) as refund_amount
+                    COALESCE(SUM(CASE WHEN recon_status IN ('Refunded', 'Manually Refunded') THEN amount ELSE 0 END), 0) as refund_amount
                 FROM reconciliation_results
                 WHERE app_source = :app;
             """)

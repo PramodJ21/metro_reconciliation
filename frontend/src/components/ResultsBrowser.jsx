@@ -40,6 +40,15 @@ const STATUS_LEGEND = [
     desc: 'A refund record exists in PG, or the App has marked this ticket as REFUNDED. Money has been returned to the customer.',
   },
   {
+    key: 'Manually Refunded',
+    color: '#0369a1',
+    bg: '#E0F2FE',
+    border: '#0284c7',
+    icon: '👤',
+    title: 'Manually Refunded',
+    desc: 'Marked manually as refunded by a system operator along with an audit note reference.',
+  },
+  {
     key: 'Discrepancy',
     color: '#475569',
     bg: '#F1F5F9',
@@ -50,39 +59,38 @@ const STATUS_LEGEND = [
   },
 ];
 
-// Source chip colours
+// Source chip colours (Standardized as premium neutral blue-grey identifiers)
 const SOURCE_STYLES = {
-  App:  { color: '#0058be', bg: '#d8e2ff', border: '#adc6ff' },
-  PG:   { color: '#171c1f', bg: '#dfe3e7', border: '#c6c6cd' },
-  AFC:  { color: '#047857', bg: '#d1fae5', border: '#10b981' },
+  App:  { color: '#0369a1', bg: '#e0f2fe', border: '#93c5fd' },
+  PG:   { color: '#475569', bg: '#f1f5f9', border: '#cbd5e1' },
+  AFC:  { color: '#1e40af', bg: '#dbeafe', border: '#93c5fd' },
 };
 
 const ALL_SOURCES = ['App', 'PG', 'AFC'];
 
-// Render small source presence chips
+// Render standardized source presence chips
 const DataSourceChips = ({ dataSources }) => {
   const present = dataSources ? dataSources.split(',').map(s => s.trim()) : [];
   return (
     <div style={{ display: 'flex', gap: '0.25rem', flexWrap: 'wrap' }}>
-      {ALL_SOURCES.map(src => {
-        const has = present.includes(src);
+      {present.map(src => {
         const s = SOURCE_STYLES[src];
+        if (!s) return null;
         return (
           <span
             key={src}
-            title={has ? `Found in ${src}` : `Not found in ${src}`}
+            title={`Found in ${src}`}
             style={{
-              fontSize: '0.68rem',
+              fontSize: '0.72rem',
               fontWeight: 700,
-              fontFamily: 'monospace',
-              padding: '0.1rem 0.45rem',
+              fontFamily: "'Outfit', 'Inter', -apple-system, sans-serif",
+              padding: '0.2rem 0.55rem',
               borderRadius: '0px',
-              border: `1px solid ${has ? s.border : 'rgba(255,255,255,0.08)'}`,
-              background: has ? s.bg : 'transparent',
-              color: has ? s.color : 'rgba(255,255,255,0.18)',
+              border: `1px solid ${s.border}`,
+              background: s.bg,
+              color: s.color,
               letterSpacing: '0.02em',
-              textDecoration: has ? 'none' : 'line-through',
-              transition: 'all 0.15s ease',
+              display: 'inline-block',
             }}
           >
             {src}
@@ -170,6 +178,11 @@ const ResultsBrowser = ({ refreshTrigger }) => {
   const [showLegend, setShowLegend] = useState(false);
   const [showFiltersPanel, setShowFiltersPanel] = useState(false);
 
+  // Manual tag updates state
+  const [manualRefundTarget, setManualRefundTarget] = useState(null);
+  const [manualRefundNote, setManualRefundNote] = useState('');
+  const [submittingManualRefund, setSubmittingManualRefund] = useState(false);
+
   // Synchronize pending state whenever the popover opens
   useEffect(() => {
     if (showFiltersPanel) {
@@ -216,6 +229,28 @@ const ResultsBrowser = ({ refreshTrigger }) => {
       console.error('Failed to fetch results', err);
     } finally {
       setLoading(false);
+    }
+  };
+
+  const handleConfirmManualRefund = async () => {
+    if (!manualRefundTarget || !manualRefundNote.trim()) return;
+    setSubmittingManualRefund(true);
+    try {
+      await axios.post('http://127.0.0.1:8000/api/reconcile/manual-refund', {
+        order_id: manualRefundTarget.order_id || null,
+        ticket_no: manualRefundTarget.ticket_no || null,
+        amount: manualRefundTarget.amount || null,
+        note: manualRefundNote.trim()
+      });
+      alert('✓ Manual refund successfully registered and applied!');
+      setManualRefundTarget(null);
+      setManualRefundNote('');
+      fetchResults();
+    } catch (err) {
+      console.error(err);
+      alert(`✕ Failed to save manual refund: ${err.response?.data?.detail || err.message}`);
+    } finally {
+      setSubmittingManualRefund(false);
     }
   };
 
@@ -306,12 +341,16 @@ const ResultsBrowser = ({ refreshTrigger }) => {
       border: `1px solid ${legend.border}`,
       color: legend.color,
       borderRadius: '0px',
-      padding: '0.2rem 0.55rem',
       fontSize: '0.72rem',
       fontWeight: 700,
       letterSpacing: '0.02em',
       whiteSpace: 'nowrap',
-      display: 'inline-block',
+      display: 'inline-flex',
+      alignItems: 'center',
+      justifyContent: 'center',
+      width: '145px',
+      height: '24px',
+      boxSizing: 'border-box',
     };
   };
 
@@ -319,22 +358,22 @@ const ResultsBrowser = ({ refreshTrigger }) => {
     const name = appName ? appName.toLowerCase() : '';
     if (name.includes('connect')) {
       return {
-        backgroundColor: '#d8e2ff',
-        color: '#001a42',
-        border: '1px solid #adc6ff'
+        backgroundColor: '#e0f2fe',
+        color: '#0369a1',
+        border: '1px solid #93c5fd'
       };
     } else if (name.includes('mumbai') || name.includes('one')) {
       return {
-        backgroundColor: '#dfe3e7',
-        color: '#171c1f',
-        border: '1px solid #c6c6cd'
+        backgroundColor: '#eef2ff',
+        color: '#4338ca',
+        border: '1px solid #c7d2fe'
       };
     } else {
-      // ONDC
+      // ONDC Hub (Distinct Salmon/Peach tint)
       return {
-        backgroundColor: '#ffdbca',
-        color: '#341100',
-        border: '1px solid #ffb690'
+        backgroundColor: '#ffecd2',
+        color: '#7c2d12',
+        border: '1px solid #fdba74'
       };
     }
   };
@@ -351,10 +390,14 @@ const ResultsBrowser = ({ refreshTrigger }) => {
     const displayName = getAppLineDisplayName(app);
     return (
       <span style={{
-        display: 'inline-block',
-        padding: '0.25rem 0.5rem',
-        fontSize: '12px',
-        fontFamily: 'Outfit, sans-serif',
+        display: 'inline-flex',
+        alignItems: 'center',
+        justifyContent: 'center',
+        width: '115px',
+        height: '24px',
+        boxSizing: 'border-box',
+        fontSize: '11px',
+        fontFamily: "'Outfit', 'Inter', -apple-system, sans-serif",
         fontWeight: 600,
         letterSpacing: '0.02em',
         ...style
@@ -366,51 +409,39 @@ const ResultsBrowser = ({ refreshTrigger }) => {
 
   return (
     <>
-      <div className="widget-card">
-      <div className="widget-card-title" style={{ margin: 0, padding: 0 }}>
-        <span>Reconciliation Ledger</span>
-        <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem' }}>
+      {/* Page Title Section with View Legend and Filter buttons at the same level */}
+      <div className="page-title-section" style={{ display: 'flex', flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1.5rem', flexWrap: 'wrap', gap: '1rem' }}>
+        <div>
+          <h1 className="page-title" style={{ margin: 0 }}>Reconciliation Ledger</h1>
+          <p className="page-subtext" style={{ margin: '0.25rem 0 0 0' }}>Unified database transaction ledger browse, status monitoring, and records index.</p>
+        </div>
+
+        <div style={{ display: 'flex', gap: '0.5rem', position: 'relative', alignItems: 'center' }}>
+          {/* ⓘ View Legend at page-title level */}
           <button
             type="button"
             onClick={() => setShowLegend(true)}
             style={{
-              background: 'transparent',
+              display: 'inline-flex',
+              alignItems: 'center',
+              gap: '0.3rem',
+              background: '#FFFFFF',
               border: '1px solid rgba(0, 0, 0, 0.15)',
               color: 'var(--text-muted)',
               fontSize: '0.75rem',
-              padding: '0.25rem 0.7rem',
+              padding: '0.55rem 0.95rem',
               borderRadius: '0px',
               cursor: 'pointer',
               fontWeight: 600,
               transition: 'all 0.15s ease',
             }}
             onMouseOver={e => e.target.style.background = 'rgba(0,0,0,0.05)'}
-            onMouseOut={e => e.target.style.background = 'transparent'}
+            onMouseOut={e => e.target.style.background = '#FFFFFF'}
           >
             ⓘ View Legend
           </button>
-          <span style={{ fontSize: '0.9rem' }}>☵</span>
-        </div>
-      </div>
 
-      {/* Filters Toolbar and Popover Anchor */}
-      <div className="filters-row" style={{ marginTop: '1rem', display: 'flex', justifyContent: 'space-between', alignItems: 'center', borderBottom: '1px solid var(--color-border)', paddingBottom: '0.75rem' }}>
-        <div style={{ display: 'flex', alignItems: 'center', gap: '1rem', flexWrap: 'wrap' }}>
-          <span style={{ fontSize: '0.75rem', color: 'var(--text-muted)', fontWeight: 700, letterSpacing: '0.05em', textTransform: 'uppercase' }}>
-            Ledger View
-          </span>
-          <span style={{ fontSize: '0.72rem', color: 'var(--text-muted)', display: 'flex', alignItems: 'center', gap: '0.45rem', flexWrap: 'wrap' }}>
-            <span style={{ opacity: 0.5 }}>•</span>
-            <b>Sources:</b>
-            <span style={{ fontFamily: 'monospace', fontWeight: 700, color: '#0058be', background: '#d8e2ff', border: '1px solid #adc6ff', padding: '0.05rem 0.35rem', fontSize: '0.68rem' }}>App</span>
-            <span style={{ fontFamily: 'monospace', fontWeight: 700, color: '#171c1f', background: '#dfe3e7', border: '1px solid #c6c6cd', padding: '0.05rem 0.35rem', fontSize: '0.68rem' }}>PG</span>
-            <span style={{ fontFamily: 'monospace', fontWeight: 700, color: '#047857', background: '#d1fae5', border: '1px solid #10b981', padding: '0.05rem 0.35rem', fontSize: '0.68rem' }}>AFC</span>
-            <span style={{ opacity: 0.5 }}>|</span>
-            <span style={{ textDecoration: 'line-through', opacity: 0.5 }}>Strikethrough</span> = Missing in Source
-          </span>
-        </div>
-
-        <div style={{ display: 'flex', gap: '0.5rem', position: 'relative' }}>
+          {/* Filter button at page-title level */}
           <button
             type="button"
             onClick={() => setShowFiltersPanel(v => !v)}
@@ -418,12 +449,12 @@ const ResultsBrowser = ({ refreshTrigger }) => {
               display: 'inline-flex',
               alignItems: 'center',
               gap: '0.4rem',
-              padding: '0.45rem 1rem',
+              padding: '0.55rem 1.1rem',
               fontSize: '0.8rem',
               fontWeight: 600,
               borderRadius: '0px',
               border: showFiltersPanel ? '1px solid #0f766e' : '1px solid var(--color-border)',
-              background: showFiltersPanel ? 'rgba(15, 118, 110, 0.05)' : 'var(--color-panel-bg)',
+              background: showFiltersPanel ? 'rgba(15, 118, 110, 0.05)' : '#FFFFFF',
               color: showFiltersPanel ? '#0f766e' : 'var(--color-primary)',
               cursor: 'pointer',
               transition: 'all 0.15s ease',
@@ -573,6 +604,7 @@ const ResultsBrowser = ({ refreshTrigger }) => {
                   <option value="Failed Transaction">Failed Transaction</option>
                   <option value="Liable for Refund">Liable for Refund</option>
                   <option value="Refunded">Refunded</option>
+                  <option value="Manually Refunded">Manually Refunded</option>
                   <option value="Discrepancy">Discrepancy</option>
                 </select>
               </div>
@@ -725,6 +757,8 @@ const ResultsBrowser = ({ refreshTrigger }) => {
         </div>
       </div>
 
+      <div className="widget-card">
+
       {/* Premium Active Filter Chips (underneath toolbar) */}
       {((appFilter ? 1 : 0) + (statusFilter ? 1 : 0) + (selectedSources.length > 0 ? 1 : 0) + (searchQuery ? 1 : 0) + (fromDate ? 1 : 0) + (toDate ? 1 : 0)) > 0 && (
         <div style={{ display: 'flex', gap: '0.4rem', flexWrap: 'wrap', marginTop: '0.5rem', marginBottom: '0.5rem', alignItems: 'center' }}>
@@ -817,10 +851,9 @@ const ResultsBrowser = ({ refreshTrigger }) => {
                 <th style={{ padding: '1rem', borderRight: '1px solid #c6c6cd', fontWeight: 500, cursor: 'pointer' }} onClick={() => setShowLegend(true)} title="Click to view Status Definitions Legend">
                   Status <span style={{ color: '#3B82F6', fontSize: '0.78rem', marginLeft: '2px' }}>ⓘ</span>
                 </th>
-                <th style={{ padding: '1rem', borderRight: '1px solid #c6c6cd', fontWeight: 500, cursor: 'pointer' }} onClick={() => setShowLegend(true)} title="Click to view Source Presence Key">
+                <th style={{ padding: '1rem', fontWeight: 500, cursor: 'pointer' }} onClick={() => setShowLegend(true)} title="Click to view Source Presence Key">
                   Sources <span style={{ color: '#3B82F6', fontSize: '0.78rem', marginLeft: '2px' }}>ⓘ</span>
                 </th>
-                <th style={{ padding: '1rem', fontWeight: 500 }}>Notes</th>
               </tr>
             </thead>
             <tbody style={{ fontSize: '14px', color: '#000000' }}>
@@ -863,14 +896,15 @@ const ResultsBrowser = ({ refreshTrigger }) => {
                   <td style={{
                     padding: '1rem',
                     borderRight: '1px solid #c6c6cd',
-                    textAlign: 'right',
                     fontFamily: 'ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace',
                     fontWeight: 600,
                     color: '#000000'
                   }}>
-                    {row.amount !== null && row.amount !== undefined
-                      ? `₹${row.amount.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`
-                      : '-'}
+                    <div style={{ width: '100%', textAlign: 'right', fontVariantNumeric: 'tabular-nums' }}>
+                      {row.amount !== null && row.amount !== undefined
+                        ? new Intl.NumberFormat('en-IN', { style: 'currency', currency: 'INR', minimumFractionDigits: 2, maximumFractionDigits: 2 }).format(row.amount)
+                        : '-'}
+                    </div>
                   </td>
                   <td style={{
                     padding: '1rem',
@@ -881,15 +915,37 @@ const ResultsBrowser = ({ refreshTrigger }) => {
                     {row.transaction_time || '-'}
                   </td>
                   <td style={{ padding: '1rem', borderRight: '1px solid #c6c6cd' }}>
-                    <span style={getStatusStyle(row.recon_status)}>
-                      {row.recon_status}
-                    </span>
+                    <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '0.5rem' }}>
+                      <span style={getStatusStyle(row.recon_status)}>
+                        {row.recon_status}
+                      </span>
+                      {row.recon_status === 'Liable for Refund' && (
+                        <button
+                          type="button"
+                          onClick={() => setManualRefundTarget(row)}
+                          style={{
+                            background: 'none',
+                            border: 'none',
+                            color: '#B45309',
+                            cursor: 'pointer',
+                            display: 'inline-flex',
+                            alignItems: 'center',
+                            justifyContent: 'center',
+                            padding: '0.2rem',
+                            borderRadius: '4px',
+                            transition: 'background-color 0.15s ease'
+                          }}
+                          onMouseOver={e => e.currentTarget.style.backgroundColor = 'rgba(180, 83, 9, 0.08)'}
+                          onMouseOut={e => e.currentTarget.style.backgroundColor = 'transparent'}
+                          title="Mark as Manually Refunded"
+                        >
+                          <span className="material-symbols-outlined" style={{ fontSize: '16px' }}>assignment_turned_in</span>
+                        </button>
+                      )}
+                    </div>
                   </td>
-                  <td style={{ padding: '1rem', borderRight: '1px solid #c6c6cd' }}>
+                  <td style={{ padding: '1rem' }}>
                     <DataSourceChips dataSources={row.data_sources} />
-                  </td>
-                  <td style={{ padding: '1rem', fontSize: '13px', color: '#45464d', whiteSpace: 'normal', minWidth: '180px', lineHeight: 1.5 }}>
-                    {row.notes || '-'}
                   </td>
                 </tr>
               ))}
@@ -902,7 +958,7 @@ const ResultsBrowser = ({ refreshTrigger }) => {
       <div className="pagination-footer" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginTop: '1.25rem' }}>
         <div style={{ display: 'flex', alignItems: 'center', gap: '1.25rem' }}>
           <p style={{ fontSize: '0.8rem', color: 'var(--text-muted)', margin: 0 }}>
-            Showing {results.length > 0 ? (page - 1) * limit + 1 : 0} to {Math.min(total, page * limit)} of {total.toLocaleString()} records
+            Showing {results.length > 0 ? (page - 1) * limit + 1 : 0} to {Math.min(total, page * limit)} of {new Intl.NumberFormat('en-IN').format(total)} records
           </p>
 
           <div style={{ display: 'flex', alignItems: 'center', gap: '0.4rem', borderLeft: '1px solid var(--color-border)', paddingLeft: '1.25rem' }}>
@@ -1155,6 +1211,127 @@ const ResultsBrowser = ({ refreshTrigger }) => {
                 style={{ padding: '0.5rem 1.5rem', fontSize: '0.75rem' }}
               >
                 Close Legend
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Premium Manual Refund Modal Dialog */}
+      {manualRefundTarget && (
+        <div style={{
+          position: 'fixed',
+          top: 0,
+          left: 0,
+          width: '100vw',
+          height: '100vh',
+          backgroundColor: 'rgba(15, 23, 42, 0.4)',
+          backdropFilter: 'blur(3px)',
+          display: 'flex',
+          justifyContent: 'center',
+          alignItems: 'center',
+          zIndex: 2000,
+          animation: 'fadeInOverlay 0.15s ease-out',
+        }}>
+          <div style={{
+            backgroundColor: '#FFFFFF',
+            border: '1px solid #c6c6cd',
+            width: '420px',
+            padding: '1.75rem',
+            display: 'flex',
+            flexDirection: 'column',
+            gap: '1.25rem',
+            animation: 'fadeInPanel 0.2s ease-out'
+          }}>
+            {/* Header */}
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', borderBottom: '1px solid var(--color-border)', paddingBottom: '0.75rem' }}>
+              <h3 style={{ fontSize: '16px', fontWeight: 800, color: 'var(--color-primary)', margin: 0 }}>Register Manual Refund</h3>
+              <span 
+                onClick={() => { setManualRefundTarget(null); setManualRefundNote(''); }} 
+                style={{ cursor: 'pointer', fontSize: '18px', fontWeight: 600, color: 'var(--text-muted)' }}
+              >✕</span>
+            </div>
+
+            {/* Transaction Data Card */}
+            <div style={{
+              backgroundColor: '#f6fafe',
+              border: '1px solid #c6c6cd',
+              padding: '0.85rem 1rem',
+              fontSize: '13px',
+              color: '#000000',
+              display: 'flex',
+              flexDirection: 'column',
+              gap: '0.35rem'
+            }}>
+              <div><b>App Line:</b> {manualRefundTarget.app_source}</div>
+              {manualRefundTarget.order_id && <div><b>Order ID:</b> <code style={{ fontFamily: 'monospace', fontWeight: 700 }}>{manualRefundTarget.order_id}</code></div>}
+              {manualRefundTarget.ticket_no && <div><b>Ticket No:</b> <code style={{ fontFamily: 'monospace', fontWeight: 700 }}>{manualRefundTarget.ticket_no}</code></div>}
+              <div><b>Amount:</b> {new Intl.NumberFormat('en-IN', { style: 'currency', currency: 'INR' }).format(manualRefundTarget.amount || 0)}</div>
+            </div>
+
+            {/* Note Input */}
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '0.45rem' }}>
+              <label style={{ fontSize: '12px', fontWeight: 700, color: '#45464d', textTransform: 'uppercase', letterSpacing: '0.04em' }}>
+                Operator Audit Note / Reason
+              </label>
+              <textarea
+                value={manualRefundNote}
+                onChange={(e) => setManualRefundNote(e.target.value)}
+                placeholder="Enter refund transaction reference, reason, or approval notes..."
+                required
+                style={{
+                  width: '100%',
+                  height: '80px',
+                  padding: '0.5rem 0.75rem',
+                  fontSize: '0.85rem',
+                  border: '1px solid #c6c6cd',
+                  borderRadius: '0px',
+                  outline: 'none',
+                  resize: 'none',
+                  fontFamily: 'Outfit, sans-serif',
+                  boxSizing: 'border-box'
+                }}
+                onFocus={(e) => e.target.style.borderColor = '#0058be'}
+                onBlur={(e) => e.target.style.borderColor = '#c6c6cd'}
+              />
+            </div>
+
+            {/* Action Buttons */}
+            <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '0.5rem', marginTop: '0.25rem' }}>
+              <button
+                type="button"
+                disabled={submittingManualRefund}
+                onClick={() => { setManualRefundTarget(null); setManualRefundNote(''); }}
+                style={{
+                  background: '#FFFFFF',
+                  border: '1px solid #c6c6cd',
+                  color: 'var(--color-primary)',
+                  fontSize: '0.8rem',
+                  fontWeight: 600,
+                  padding: '0.5rem 1rem',
+                  cursor: 'pointer',
+                }}
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                disabled={submittingManualRefund || !manualRefundNote.trim()}
+                onClick={handleConfirmManualRefund}
+                style={{
+                  background: '#0f766e',
+                  border: 'none',
+                  color: '#FFFFFF',
+                  fontSize: '0.8rem',
+                  fontWeight: 600,
+                  padding: '0.5rem 1.25rem',
+                  cursor: 'pointer',
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: '0.25rem'
+                }}
+              >
+                {submittingManualRefund ? 'Processing...' : 'Confirm Refund'}
               </button>
             </div>
           </div>

@@ -20,6 +20,7 @@ function App() {
     return localStorage.getItem('transitflow_active_page') || 'dashboard';
   });
   const [sidebarOpen, setSidebarOpen] = useState(false);
+  const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
 
   useEffect(() => {
     localStorage.setItem('transitflow_active_page', activePage);
@@ -265,33 +266,72 @@ function App() {
       )}
 
       {/* 1. Sleek Left Sidebar (Single Source of Navigation Truth) */}
-      <aside className={`sidebar ${sidebarOpen ? 'open' : ''}`} style={{ backgroundColor: '#FFFFFF', padding: '1.25rem 0 0 0' }}>
+      <aside 
+        className={`sidebar ${sidebarOpen ? 'open' : ''}`} 
+        style={{ 
+          backgroundColor: '#FFFFFF', 
+          padding: sidebarCollapsed ? '1rem 0 0 0' : '1.25rem 0 0 0',
+          width: sidebarCollapsed ? '70px' : '260px',
+          transition: 'width 0.2s cubic-bezier(0.4, 0, 0.2, 1)'
+        }}
+      >
         <div className="sidebar-top" style={{ display: 'flex', flexDirection: 'column', gap: 0 }}>
           {/* Logo Section */}
           <div className="sidebar-logo" style={{
             display: 'flex',
+            flexDirection: sidebarCollapsed ? 'column' : 'row',
             alignItems: 'center',
-            gap: '0.75rem',
-            padding: '0 1.25rem 1.25rem 1.25rem',
+            justifyContent: sidebarCollapsed ? 'center' : 'space-between',
+            gap: sidebarCollapsed ? '0.75rem' : '0.5rem',
+            padding: sidebarCollapsed ? '0.5rem 0 1rem 0' : '0 1.25rem 1.25rem 1.25rem',
             borderBottom: '1px solid #94A3B8',
             marginBottom: '1rem'
           }}>
-            <div style={{
-              width: '36px',
-              height: '36px',
-              backgroundColor: '#000000',
-              borderRadius: '6px',
-              display: 'flex',
-              justifyContent: 'center',
-              alignItems: 'center',
-              flexShrink: 0
-            }}>
-              <span className="material-symbols-outlined" style={{ color: '#FFFFFF', fontSize: '20px' }}>train</span>
+            <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem' }}>
+              <div style={{
+                width: '36px',
+                height: '36px',
+                backgroundColor: '#000000',
+                borderRadius: '6px',
+                display: 'flex',
+                justifyContent: 'center',
+                alignItems: 'center',
+                flexShrink: 0
+              }}>
+                <span className="material-symbols-outlined" style={{ color: '#FFFFFF', fontSize: '20px' }}>train</span>
+              </div>
+              {!sidebarCollapsed && (
+                <div style={{ display: 'flex', flexDirection: 'column' }}>
+                  <h2 style={{ fontSize: '15px', fontWeight: 700, color: '#0F172A', margin: 0, lineHeight: '1.25' }}>Transit Control</h2>
+                  <p style={{ fontSize: '9px', fontWeight: 600, color: '#64748B', letterSpacing: '0.05em', textTransform: 'uppercase', margin: 0 }}>NETWORK MONITOR</p>
+                </div>
+              )}
             </div>
-            <div style={{ display: 'flex', flexDirection: 'column' }}>
-              <h2 style={{ fontSize: '15px', fontWeight: 700, color: '#0F172A', margin: 0, lineHeight: '1.25' }}>Transit Control</h2>
-              <p style={{ fontSize: '9px', fontWeight: 600, color: '#64748B', letterSpacing: '0.05em', textTransform: 'uppercase', margin: 0 }}>NETWORK MONITOR</p>
-            </div>
+            
+            {/* Collapse Toggle Button */}
+            <button
+              type="button"
+              onClick={() => setSidebarCollapsed(prev => !prev)}
+              style={{
+                background: 'none',
+                border: 'none',
+                color: '#64748B',
+                cursor: 'pointer',
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'center',
+                padding: '0.25rem',
+                borderRadius: '4px',
+                transition: 'background-color 0.15s ease'
+              }}
+              onMouseOver={(e) => e.currentTarget.style.backgroundColor = '#F1F5F9'}
+              onMouseOut={(e) => e.currentTarget.style.backgroundColor = 'transparent'}
+              title={sidebarCollapsed ? "Expand Sidebar" : "Collapse Sidebar"}
+            >
+              <span className="material-symbols-outlined" style={{ fontSize: '20px' }}>
+                {sidebarCollapsed ? 'chevron_right' : 'chevron_left'}
+              </span>
+            </button>
           </div>
           
           {/* Group 1 Menu Items (Dashboard) */}
@@ -299,10 +339,21 @@ function App() {
             <div 
               className={`sidebar-item ${activePage === 'dashboard' ? 'active' : ''}`}
               onClick={() => handleSidebarNavigate('dashboard')}
-              style={{ display: 'flex', alignItems: 'center', gap: '0.85rem', padding: '0.7rem 1.25rem', cursor: 'pointer', fontSize: '14px', fontWeight: 500 }}
+              style={{ 
+                display: 'flex', 
+                alignItems: 'center', 
+                justifyContent: sidebarCollapsed ? 'center' : 'flex-start',
+                gap: sidebarCollapsed ? '0' : '0.85rem', 
+                padding: sidebarCollapsed ? '0.7rem 0' : '0.7rem 1.25rem', 
+                cursor: 'pointer', 
+                fontSize: '14px', 
+                fontWeight: 500,
+                position: 'relative'
+              }}
+              title={sidebarCollapsed ? "Dashboard" : ""}
             >
               <span className="material-symbols-outlined" style={{ fontSize: '20px' }}>dashboard</span>
-              Dashboard
+              {!sidebarCollapsed && "Dashboard"}
             </div>
           </div>
 
@@ -311,118 +362,205 @@ function App() {
             <div 
               className={`sidebar-item ${activePage === 'depot' ? 'active' : ''}`}
               onClick={() => handleSidebarNavigate('depot')}
-              style={{ display: 'flex', alignItems: 'center', gap: '0.85rem', padding: '0.7rem 1.25rem', cursor: 'pointer', fontSize: '14px', fontWeight: 500 }}
+              style={{ 
+                display: 'flex', 
+                alignItems: 'center', 
+                justifyContent: sidebarCollapsed ? 'center' : 'flex-start',
+                gap: sidebarCollapsed ? '0' : '0.85rem', 
+                padding: sidebarCollapsed ? '0.7rem 0' : '0.7rem 1.25rem', 
+                cursor: 'pointer', 
+                fontSize: '14px', 
+                fontWeight: 500,
+                position: 'relative'
+              }}
+              title={sidebarCollapsed ? "Depot" : ""}
             >
               <span className="material-symbols-outlined" style={{ fontSize: '20px' }}>storefront</span>
-              Depot
+              {!sidebarCollapsed && "Depot"}
             </div>
             
             <div 
-              className={`sidebar-item ${activePage === 'logger' ? 'active' : ''}`}
-              onClick={() => handleSidebarNavigate('logger')}
-              style={{ display: 'flex', alignItems: 'center', gap: '0.85rem', padding: '0.7rem 1.25rem', cursor: 'pointer', fontSize: '14px', fontWeight: 500 }}
-            >
-              <span className="material-symbols-outlined" style={{ fontSize: '20px' }}>receipt_long</span>
-              Audit
-            </div>
-
-            <div 
               className={`sidebar-item ${activePage === 'ledger' ? 'active' : ''}`}
               onClick={() => handleSidebarNavigate('ledger')}
-              style={{ display: 'flex', alignItems: 'center', gap: '0.85rem', padding: '0.7rem 1.25rem', cursor: 'pointer', fontSize: '14px', fontWeight: 500 }}
+              style={{ 
+                display: 'flex', 
+                alignItems: 'center', 
+                justifyContent: sidebarCollapsed ? 'center' : 'flex-start',
+                gap: sidebarCollapsed ? '0' : '0.85rem', 
+                padding: sidebarCollapsed ? '0.7rem 0' : '0.7rem 1.25rem', 
+                cursor: 'pointer', 
+                fontSize: '14px', 
+                fontWeight: 500,
+                position: 'relative'
+              }}
+              title={sidebarCollapsed ? "Ledger" : ""}
             >
               <span className="material-symbols-outlined" style={{ fontSize: '20px' }}>account_balance_wallet</span>
-              Ledger
+              {!sidebarCollapsed && "Ledger"}
             </div>
+            
+            <div 
+            className={`sidebar-item ${activePage === 'logger' ? 'active' : ''}`}
+            onClick={() => handleSidebarNavigate('logger')}
+            style={{ 
+              display: 'flex', 
+              alignItems: 'center', 
+              justifyContent: sidebarCollapsed ? 'center' : 'flex-start',
+              gap: sidebarCollapsed ? '0' : '0.85rem', 
+              padding: sidebarCollapsed ? '0.7rem 0' : '0.7rem 1.25rem', 
+              cursor: 'pointer', 
+              fontSize: '14px', 
+              fontWeight: 500,
+              position: 'relative'
+            }}
+            title={sidebarCollapsed ? "Audit" : ""}
+          >
+            <span className="material-symbols-outlined" style={{ fontSize: '20px' }}>receipt_long</span>
+            {!sidebarCollapsed && "Audit"}
+          </div>
+          
           </div>
         </div>
 
+       
+
+
         {/* Sidebar Footer with Status Controls */}
         <div style={{ display: 'flex', flexDirection: 'column', gap: 0, marginTop: 'auto', borderTop: '1px solid #94A3B8' }}>
-          {/* Database Status Controls */}
-          <div className="sidebar-footer" style={{
-            display: 'flex',
-            flexDirection: 'column',
-            gap: '0.75rem',
-            padding: '1rem 1.25rem 1.25rem 1.25rem',
-            backgroundColor: '#FFFFFF'
-          }}>
-            {/* Database Online Badge */}
-            <div className="db-badge" style={{
+          {!sidebarCollapsed ? (
+            <div className="sidebar-footer" style={{
               display: 'flex',
-              alignItems: 'center',
-              gap: '0.45rem',
-              padding: '0.5rem 0.75rem',
-              fontSize: '0.7rem',
-              fontWeight: 700,
-              letterSpacing: '0.04em',
-              borderRadius: '0px',
-              backgroundColor: dbStatus?.connected ? 'rgba(16, 185, 129, 0.08)' : 'rgba(239, 68, 68, 0.08)',
-              border: `1px solid ${dbStatus?.connected ? 'rgba(16, 185, 129, 0.2)' : 'rgba(239, 68, 68, 0.2)'}`,
-              color: dbStatus?.connected ? '#047857' : '#991B1B',
-              fontFamily: "'Outfit', sans-serif",
-              width: '100%',
-              boxSizing: 'border-box'
+              flexDirection: 'column',
+              gap: '0.75rem',
+              padding: '1rem 1.25rem 1.25rem 1.25rem',
+              backgroundColor: '#FFFFFF'
             }}>
-              <span 
+              {/* Database Online Badge */}
+              <div className="db-badge" style={{
+                display: 'flex',
+                alignItems: 'center',
+                gap: '0.45rem',
+                padding: '0.5rem 0.75rem',
+                fontSize: '0.7rem',
+                fontWeight: 700,
+                letterSpacing: '0.04em',
+                borderRadius: '0px',
+                backgroundColor: dbStatus?.connected ? 'rgba(16, 185, 129, 0.08)' : 'rgba(239, 68, 68, 0.08)',
+                border: `1px solid ${dbStatus?.connected ? 'rgba(16, 185, 129, 0.2)' : 'rgba(239, 68, 68, 0.2)'}`,
+                color: dbStatus?.connected ? '#047857' : '#991B1B',
+                fontFamily: "'Outfit', sans-serif",
+                width: '100%',
+                boxSizing: 'border-box'
+              }}>
+                <span 
+                  className={`ready-bullet ${dbStatus?.connected ? 'pulse-bullet' : ''}`} 
+                  style={{
+                    width: '6px',
+                    height: '6px',
+                    borderRadius: '50%',
+                    backgroundColor: dbStatus?.connected ? '#10b981' : '#ef4444',
+                    boxShadow: dbStatus?.connected ? '0 0 6px #10b981' : 'none',
+                    display: 'inline-block'
+                  }}
+                ></span>
+                {dbStatus?.connected ? 'NETWORK ONLINE' : 'DATABASE OFFLINE'}
+              </div>
+
+              {/* Trigger Classification Button */}
+              <button
+                type="button"
+                onClick={handleTriggerClassification}
+                disabled={reconRunning}
+                style={{
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  gap: '0.4rem',
+                  padding: '0.65rem 1rem',
+                  fontSize: '0.72rem',
+                  fontWeight: 700,
+                  letterSpacing: '0.06em',
+                  textTransform: 'uppercase',
+                  fontFamily: "'Outfit', sans-serif",
+                  background: reconRunning ? '#cbd5e1' : 'var(--color-primary)',
+                  color: reconRunning ? 'var(--text-muted)' : '#ffffff',
+                  border: 'none',
+                  borderRadius: '0px',
+                  cursor: reconRunning ? 'not-allowed' : 'pointer',
+                  transition: 'all 0.15s ease',
+                  width: '100%',
+                  boxSizing: 'border-box',
+                }}
+                onMouseOver={e => { if (!reconRunning) e.target.style.background = '#1E293B'; }}
+                onMouseOut={e => { if (!reconRunning) e.target.style.background = 'var(--color-primary)'; }}
+              >
+                <span style={{ fontSize: '0.75rem' }}>{reconRunning ? '◌' : '▸'}</span>
+                {reconRunning ? 'Classifying...' : 'Trigger Classify'}
+              </button>
+
+              {/* Inline Status Message */}
+              {reconMessage && (
+                <div style={{
+                  fontSize: '0.68rem',
+                  fontWeight: 600,
+                  color: reconStatus === 'success' ? '#10b981' : '#ef4444',
+                  letterSpacing: '0.02em',
+                  textAlign: 'center',
+                }}>
+                  {reconStatus === 'success' ? '✓' : '⚠'} {reconMessage}
+                </div>
+              )}
+            </div>
+          ) : (
+            <div style={{
+              display: 'flex',
+              flexDirection: 'column',
+              alignItems: 'center',
+              gap: '1rem',
+              padding: '1rem 0',
+              backgroundColor: '#FFFFFF'
+            }}>
+              {/* Database status pulsing bullet with hover tooltip */}
+              <div 
                 className={`ready-bullet ${dbStatus?.connected ? 'pulse-bullet' : ''}`} 
                 style={{
-                  width: '6px',
-                  height: '6px',
+                  width: '12px',
+                  height: '12px',
                   borderRadius: '50%',
                   backgroundColor: dbStatus?.connected ? '#10b981' : '#ef4444',
                   boxShadow: dbStatus?.connected ? '0 0 6px #10b981' : 'none',
-                  display: 'inline-block'
+                  cursor: 'pointer'
                 }}
-              ></span>
-              {dbStatus?.connected ? 'NETWORK ONLINE' : 'DATABASE OFFLINE'}
+                title={dbStatus?.connected ? "Database Online" : "Database Offline"}
+              />
+
+              {/* Tiny trigger icon button with hover tooltip */}
+              <button 
+                type="button" 
+                onClick={handleTriggerClassification} 
+                disabled={reconRunning}
+                style={{
+                  background: 'none',
+                  border: 'none',
+                  color: reconRunning ? '#cbd5e1' : '#000000',
+                  cursor: reconRunning ? 'not-allowed' : 'pointer',
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  padding: '0.25rem',
+                  borderRadius: '4px',
+                  transition: 'background-color 0.15s ease'
+                }}
+                onMouseOver={(e) => { if (!reconRunning) e.currentTarget.style.backgroundColor = '#F1F5F9'; }}
+                onMouseOut={(e) => { if (!reconRunning) e.currentTarget.style.backgroundColor = 'transparent'; }}
+                title={reconRunning ? "Classifying..." : "Trigger Classify"}
+              >
+                <span className="material-symbols-outlined" style={{ fontSize: '20px' }}>
+                  {reconRunning ? 'sync' : 'sync_alt'}
+                </span>
+              </button>
             </div>
-
-            {/* Trigger Classification Button */}
-            <button
-              type="button"
-              onClick={handleTriggerClassification}
-              disabled={reconRunning}
-              style={{
-                display: 'flex',
-                alignItems: 'center',
-                justifyContent: 'center',
-                gap: '0.4rem',
-                padding: '0.65rem 1rem',
-                fontSize: '0.72rem',
-                fontWeight: 700,
-                letterSpacing: '0.06em',
-                textTransform: 'uppercase',
-                fontFamily: "'Outfit', sans-serif",
-                background: reconRunning ? '#cbd5e1' : 'var(--color-primary)',
-                color: reconRunning ? 'var(--text-muted)' : '#ffffff',
-                border: 'none',
-                borderRadius: '0px',
-                cursor: reconRunning ? 'not-allowed' : 'pointer',
-                transition: 'all 0.15s ease',
-                width: '100%',
-                boxSizing: 'border-box',
-              }}
-              onMouseOver={e => { if (!reconRunning) e.target.style.background = '#1E293B'; }}
-              onMouseOut={e => { if (!reconRunning) e.target.style.background = 'var(--color-primary)'; }}
-            >
-              <span style={{ fontSize: '0.75rem' }}>{reconRunning ? '◌' : '▸'}</span>
-              {reconRunning ? 'Classifying...' : 'Trigger Classify'}
-            </button>
-
-            {/* Inline Status Message */}
-            {reconMessage && (
-              <div style={{
-                fontSize: '0.68rem',
-                fontWeight: 600,
-                color: reconStatus === 'success' ? '#10b981' : '#ef4444',
-                letterSpacing: '0.02em',
-                textAlign: 'center',
-              }}>
-                {reconStatus === 'success' ? '✓' : '⚠'} {reconMessage}
-              </div>
-            )}
-          </div>
+          )}
         </div>
       </aside>
 
@@ -478,11 +616,6 @@ function App() {
           {activePage === 'ledger' && (
             /* PAGE 4: LEDGER (Results Table grid browser) */
             <>
-              <div className="page-title-section">
-                <h1 className="page-title">Reconciliation Ledger</h1>
-                <p className="page-subtext">Unified database transaction ledger browse, status monitoring, and records index.</p>
-              </div>
-
               <ResultsBrowser refreshTrigger={resultsRefreshTrigger} />
             </>
           )}

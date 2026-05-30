@@ -14,6 +14,22 @@ const IngestionLogger = ({ ingestionLogs = [], onRevertSuccess, setGlobalLoading
   const [pageInputVal, setPageInputVal] = useState('1');
   const [limitInputVal, setLimitInputVal] = useState('10');
 
+  // Manual Adjustments Audit Log state
+  const [manualRefundLogs, setManualRefundLogs] = useState([]);
+
+  const fetchManualRefundLogs = async () => {
+    try {
+      const response = await axios.get('http://127.0.0.1:8000/api/reconcile/manual-refunds/logs');
+      setManualRefundLogs(response.data);
+    } catch (err) {
+      console.error('Failed to fetch manual tag update logs:', err);
+    }
+  };
+
+  useEffect(() => {
+    fetchManualRefundLogs();
+  }, [activeTab]);
+
   // Reset page to 1 when filters or tabs change
   useEffect(() => {
     setPage(1);
@@ -145,22 +161,22 @@ const IngestionLogger = ({ ingestionLogs = [], onRevertSuccess, setGlobalLoading
     const name = appName ? appName.toLowerCase() : '';
     if (name.includes('connect')) {
       return {
-        backgroundColor: '#d8e2ff',
-        color: '#001a42',
-        border: '1px solid #adc6ff'
+        backgroundColor: '#e0f2fe',
+        color: '#0369a1',
+        border: '1px solid #93c5fd'
       };
     } else if (name.includes('mumbai') || name.includes('one')) {
       return {
-        backgroundColor: '#dfe3e7',
-        color: '#171c1f',
-        border: '1px solid #c6c6cd'
+        backgroundColor: '#eef2ff',
+        color: '#4338ca',
+        border: '1px solid #c7d2fe'
       };
     } else {
-      // ONDC Hub
+      // ONDC Hub (Distinct Salmon/Peach tint)
       return {
-        backgroundColor: '#ffdbca',
-        color: '#341100',
-        border: '1px solid #ffb690'
+        backgroundColor: '#ffecd2',
+        color: '#7c2d12',
+        border: '1px solid #fdba74'
       };
     }
   };
@@ -170,6 +186,14 @@ const IngestionLogger = ({ ingestionLogs = [], onRevertSuccess, setGlobalLoading
     if (name.includes('connect')) return 'Metro Connect';
     if (name.includes('mumbai') || name.includes('one')) return 'Mumbai One';
     return 'ONDC Hub';
+  };
+
+  const getChannelDisplayName = (channel) => {
+    const c = channel ? channel.toLowerCase() : '';
+    if (c.includes('mobile')) return 'MOBILE GATEWAY';
+    if (c.includes('pg') || c.includes('payment') || c.includes('webhook')) return 'PAYMENT GATEWAY';
+    if (c.includes('afc')) return 'AFC GATEWAY';
+    return channel.toUpperCase();
   };
 
   const formatDateString = (dateStr) => {
@@ -237,8 +261,32 @@ const IngestionLogger = ({ ingestionLogs = [], onRevertSuccess, setGlobalLoading
     return sortOrder === 'desc' ? dateB - dateA : dateA - dateB;
   });
 
+  const filteredManualRefundLogs = (manualRefundLogs || []).filter(log => {
+    if (!log.updated_at) return false;
+    const logDate = new Date(log.updated_at);
+    if (startDate) {
+      const start = new Date(startDate);
+      start.setHours(0,0,0,0);
+      if (logDate < start) return false;
+    }
+    if (endDate) {
+      const end = new Date(endDate);
+      end.setHours(23,59,59,999);
+      if (logDate > end) return false;
+    }
+    return true;
+  });
+
+  const sortedManualRefundLogs = [...filteredManualRefundLogs].sort((a, b) => {
+    const dateA = new Date(a.updated_at);
+    const dateB = new Date(b.updated_at);
+    return sortOrder === 'desc' ? dateB - dateA : dateA - dateB;
+  });
+
   // Dynamic Pagination calculations based on tab
-  const activeRecords = activeTab === 'staged' ? sortedStagedLogs : sortedRevertedLogs;
+  const activeRecords = activeTab === 'staged' 
+    ? sortedStagedLogs 
+    : (activeTab === 'reverted' ? sortedRevertedLogs : sortedManualRefundLogs);
   const total = activeRecords.length;
   const totalPages = Math.max(1, Math.ceil(total / limit));
   const paginatedLogs = activeRecords.slice((page - 1) * limit, page * limit);
@@ -346,6 +394,51 @@ const IngestionLogger = ({ ingestionLogs = [], onRevertSuccess, setGlobalLoading
               letterSpacing: '0.05em'
             }}>
               {revertedLogs.length}
+            </span>
+          </button>
+
+          {/* Manual Tag Adjustments Tab Button */}
+          <button
+            type="button"
+            onClick={() => setActiveTab('adjustments')}
+            style={{
+              flex: 1,
+              padding: '1rem 0',
+              fontFamily: 'Outfit, sans-serif',
+              fontSize: '14px',
+              fontWeight: 600,
+              letterSpacing: '0.1em',
+              textTransform: 'uppercase',
+              cursor: 'pointer',
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'center',
+              gap: '0.5rem',
+              border: 'none',
+              borderBottom: activeTab === 'adjustments' ? '4px solid #0058be' : '4px solid transparent',
+              backgroundColor: activeTab === 'adjustments' ? '#f0f4f8' : 'transparent',
+              color: activeTab === 'adjustments' ? '#0058be' : '#45464d',
+              transition: 'all 0.2s ease'
+            }}
+          >
+            Manual Tag Adjustments
+            <span style={activeTab === 'adjustments' ? {
+              backgroundColor: '#0058be',
+              color: '#ffffff',
+              padding: '0.15rem 0.5rem',
+              fontSize: '10px',
+              fontWeight: 700,
+              letterSpacing: '0.05em'
+            } : {
+              backgroundColor: '#dfe3e7',
+              color: '#45464d',
+              border: '1px solid #c6c6cd',
+              padding: '0.15rem 0.5rem',
+              fontSize: '10px',
+              fontWeight: 700,
+              letterSpacing: '0.05em'
+            }}>
+              {manualRefundLogs.length}
             </span>
           </button>
         </div>
@@ -518,10 +611,14 @@ const IngestionLogger = ({ ingestionLogs = [], onRevertSuccess, setGlobalLoading
                         {/* App Line customized chip */}
                         <td style={{ padding: '1rem', borderRight: '1px solid #c6c6cd' }}>
                           <span style={{
-                            display: 'inline-block',
-                            padding: '0.25rem 0.5rem',
-                            fontSize: '12px',
-                            fontFamily: 'Outfit, sans-serif',
+                            display: 'inline-flex',
+                            alignItems: 'center',
+                            justifyContent: 'center',
+                            width: '115px',
+                            height: '24px',
+                            boxSizing: 'border-box',
+                            fontSize: '11px',
+                            fontFamily: "'Outfit', 'Inter', -apple-system, sans-serif",
                             fontWeight: 600,
                             letterSpacing: '0.02em',
                             ...chipStyle
@@ -532,7 +629,7 @@ const IngestionLogger = ({ ingestionLogs = [], onRevertSuccess, setGlobalLoading
                         
                         {/* Ingestion Channel */}
                         <td style={{ padding: '1rem', borderRight: '1px solid #c6c6cd', color: '#171c1f' }}>
-                          {log.channel === 'Mobile' ? 'Mobile Gateway' : log.channel === 'PG' ? 'PG Webhook' : log.channel === 'AFC' ? 'AFC Node 2' : log.channel}
+                          {getChannelDisplayName(log.channel)}
                         </td>
                         
                         {/* Staged Rows right-aligned monospaced */}
@@ -541,10 +638,11 @@ const IngestionLogger = ({ ingestionLogs = [], onRevertSuccess, setGlobalLoading
                           borderRight: '1px solid #c6c6cd',
                           textAlign: 'right',
                           fontFamily: 'ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace',
+                          fontVariantNumeric: 'tabular-nums',
                           fontWeight: 600,
                           color: '#000000'
                         }}>
-                          {log.row_count.toLocaleString()}
+                          {new Intl.NumberFormat('en-IN').format(log.row_count)}
                         </td>
                         
                         {/* Timestamp in monospaced MM/DD/YY HH:MM:SS format */}
@@ -562,12 +660,11 @@ const IngestionLogger = ({ ingestionLogs = [], onRevertSuccess, setGlobalLoading
                           <button
                             onClick={() => handleRevertClick(log.id, log.filename)}
                             disabled={revertingId !== null}
-                            className="btn-revert-action"
                             style={{
-                              border: '1px solid #c6c6cd',
-                              backgroundColor: '#ffffff',
-                              color: '#000000',
-                              padding: '0.35rem 0.75rem',
+                              background: 'none',
+                              border: 'none',
+                              color: '#76777d',
+                              padding: '0.25rem 0.5rem',
                               fontFamily: 'Outfit, sans-serif',
                               fontSize: '12px',
                               fontWeight: 600,
@@ -577,8 +674,11 @@ const IngestionLogger = ({ ingestionLogs = [], onRevertSuccess, setGlobalLoading
                               justifyContent: 'center',
                               gap: '0.25rem',
                               transition: 'all 0.2s ease',
-                              marginLeft: 'auto'
+                              marginLeft: 'auto',
+                              textDecoration: 'none'
                             }}
+                            onMouseOver={e => { if (revertingId === null) { e.currentTarget.style.color = '#ba1a1a'; e.currentTarget.style.textDecoration = 'underline'; } }}
+                            onMouseOut={e => { if (revertingId === null) { e.currentTarget.style.color = '#76777d'; e.currentTarget.style.textDecoration = 'none'; } }}
                           >
                             <span className="material-symbols-outlined" style={{ fontSize: '16px' }}>history</span>
                             {revertingId === log.id ? 'Reverting...' : 'Revert Ingestion'}
@@ -589,7 +689,7 @@ const IngestionLogger = ({ ingestionLogs = [], onRevertSuccess, setGlobalLoading
                   })}
                 </tbody>
               </table>
-            ) : (
+            ) : activeTab === 'reverted' ? (
               // Reverted Tab contents
               <table style={{ width: '100%', borderCollapse: 'collapse', textAlign: 'left', minWidth: '800px' }}>
                 <thead style={{
@@ -641,10 +741,14 @@ const IngestionLogger = ({ ingestionLogs = [], onRevertSuccess, setGlobalLoading
                         {/* App Line faded chip */}
                         <td style={{ padding: '1rem', borderRight: '1px solid #c6c6cd' }}>
                           <span style={{
-                            display: 'inline-block',
-                            padding: '0.25rem 0.5rem',
-                            fontSize: '12px',
-                            fontFamily: 'Outfit, sans-serif',
+                            display: 'inline-flex',
+                            alignItems: 'center',
+                            justifyContent: 'center',
+                            width: '115px',
+                            height: '24px',
+                            boxSizing: 'border-box',
+                            fontSize: '11px',
+                            fontFamily: "'Outfit', 'Inter', -apple-system, sans-serif",
                             fontWeight: 600,
                             letterSpacing: '0.02em',
                             opacity: 0.5,
@@ -656,7 +760,7 @@ const IngestionLogger = ({ ingestionLogs = [], onRevertSuccess, setGlobalLoading
                         
                         {/* Ingestion Channel line-through */}
                         <td style={{ padding: '1rem', borderRight: '1px solid #c6c6cd', textDecoration: 'line-through' }}>
-                          {log.channel === 'Mobile' ? 'Mobile Gateway' : log.channel === 'PG' ? 'PG Webhook' : log.channel === 'AFC' ? 'AFC Node 2' : log.channel}
+                          {getChannelDisplayName(log.channel)}
                         </td>
                         
                         {/* Staged rows right-aligned monospaced line-through */}
@@ -665,10 +769,11 @@ const IngestionLogger = ({ ingestionLogs = [], onRevertSuccess, setGlobalLoading
                           borderRight: '1px solid #c6c6cd',
                           textAlign: 'right',
                           fontFamily: 'ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace',
+                          fontVariantNumeric: 'tabular-nums',
                           textDecoration: 'line-through',
                           color: '#76777d'
                         }}>
-                          {log.row_count.toLocaleString()}
+                          {new Intl.NumberFormat('en-IN').format(log.row_count)}
                         </td>
                         
                         {/* Timestamp in monospaced */}
@@ -705,6 +810,105 @@ const IngestionLogger = ({ ingestionLogs = [], onRevertSuccess, setGlobalLoading
                   })}
                 </tbody>
               </table>
+            ) : (
+              // Manual Tag Adjustments Tab contents
+              <table style={{ width: '100%', borderCollapse: 'collapse', textAlign: 'left', minWidth: '800px' }}>
+                <thead style={{
+                  backgroundColor: '#f6fafe',
+                  color: '#45464d',
+                  fontSize: '12px',
+                  fontWeight: 500,
+                  letterSpacing: '0.05em',
+                  position: 'sticky',
+                  top: 0,
+                  zIndex: 10,
+                  boxShadow: 'inset 0 -1px 0 #c6c6cd'
+                }}>
+                  <tr style={{ borderBottom: '1px solid #c6c6cd' }}>
+                    <th style={{ padding: '1rem', borderRight: '1px solid #c6c6cd', fontWeight: 500 }}>Identifiers</th>
+                    <th style={{ padding: '1rem', borderRight: '1px solid #c6c6cd', fontWeight: 500, textAlign: 'right' }}>Amount</th>
+                    <th style={{ padding: '1rem', borderRight: '1px solid #c6c6cd', fontWeight: 500 }}>Transition Action</th>
+                    <th style={{ padding: '1rem', borderRight: '1px solid #c6c6cd', fontWeight: 500 }}>Audit Notes / Reason</th>
+                    <th style={{ padding: '1rem', fontWeight: 500, textAlign: 'right' }}>Adjustment Time</th>
+                  </tr>
+                </thead>
+                <tbody style={{ fontSize: '14px', color: '#000000' }}>
+                  {paginatedLogs.map((log) => (
+                    <tr
+                      key={log.id}
+                      className="staged-row-hover"
+                      style={{ borderBottom: '1px solid #c6c6cd', transition: 'background-color 0.15s ease', verticalAlign: 'middle' }}
+                    >
+                      {/* Identifiers with monospaced format */}
+                      <td style={{
+                        padding: '1rem',
+                        borderRight: '1px solid #c6c6cd',
+                        fontFamily: 'ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace',
+                        fontSize: '13px'
+                      }}>
+                        {log.order_id && <div><b>Order:</b> {log.order_id}</div>}
+                        {log.ticket_no && <div style={{ marginTop: '0.2rem' }}><b>Ticket:</b> {log.ticket_no}</div>}
+                        {!log.order_id && !log.ticket_no && <span style={{ color: '#76777d' }}>-</span>}
+                      </td>
+                      
+                      {/* Amount column in en-IN style */}
+                      <td style={{
+                        padding: '1rem',
+                        borderRight: '1px solid #c6c6cd',
+                        textAlign: 'right',
+                        fontFamily: 'ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace',
+                        fontVariantNumeric: 'tabular-nums',
+                        fontWeight: 600,
+                        color: '#000000'
+                      }}>
+                        {new Intl.NumberFormat('en-IN', { style: 'currency', currency: 'INR' }).format(log.amount || 0)}
+                      </td>
+                      
+                      {/* Transition Path action badge */}
+                      <td style={{ padding: '1rem', borderRight: '1px solid #c6c6cd', verticalAlign: 'middle' }}>
+                        <div style={{ display: 'flex', alignItems: 'center', gap: '0.4rem', flexWrap: 'wrap' }}>
+                          <span style={{
+                            padding: '0.15rem 0.45rem',
+                            fontSize: '11px',
+                            fontWeight: 700,
+                            backgroundColor: '#FEF3C7',
+                            border: '1px solid #f59e0b',
+                            color: '#B45309'
+                          }}>
+                            {log.original_status}
+                          </span>
+                          <span style={{ fontSize: '12px', color: '#76777d' }}>➔</span>
+                          <span style={{
+                            padding: '0.15rem 0.45rem',
+                            fontSize: '11px',
+                            fontWeight: 700,
+                            backgroundColor: '#E0F2FE',
+                            border: '1px solid #0284c7',
+                            color: '#0369a1'
+                          }}>
+                            {log.updated_status}
+                          </span>
+                        </div>
+                      </td>
+                      
+                      {/* Audit log note */}
+                      <td style={{ padding: '1rem', borderRight: '1px solid #c6c6cd', fontSize: '13px', color: '#45464d', whiteSpace: 'normal', minWidth: '220px', lineHeight: 1.5 }}>
+                        {log.note || '-'}
+                      </td>
+                      
+                      {/* Ingestion time */}
+                      <td style={{
+                        padding: '1rem',
+                        textAlign: 'right',
+                        fontFamily: 'ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace',
+                        color: '#45464d'
+                      }}>
+                        {formatDateString(log.updated_at)}
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
             )
           )}
         </div>
@@ -714,7 +918,7 @@ const IngestionLogger = ({ ingestionLogs = [], onRevertSuccess, setGlobalLoading
           <div className="pagination-footer" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '1rem', borderTop: '1px solid #c6c6cd', backgroundColor: '#f6fafe' }}>
             <div style={{ display: 'flex', alignItems: 'center', gap: '1.25rem' }}>
               <p style={{ fontSize: '0.8rem', color: '#45464d', margin: 0 }}>
-                Showing {total > 0 ? (page - 1) * limit + 1 : 0} to {Math.min(total, page * limit)} of {total.toLocaleString()} records
+                Showing {total > 0 ? (page - 1) * limit + 1 : 0} to {Math.min(total, page * limit)} of {new Intl.NumberFormat('en-IN').format(total)} records
               </p>
 
               <div style={{ display: 'flex', alignItems: 'center', gap: '0.4rem', borderLeft: '1px solid #c6c6cd', paddingLeft: '1.25rem' }}>

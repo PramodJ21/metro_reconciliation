@@ -17,7 +17,9 @@ from app.schemas import (
     ReconciliationRecordSchema,
     DatabaseStatusSchema,
     DatabaseTableMetrics,
-    RevertRequestSchema
+    RevertRequestSchema,
+    ManualRefundRequestSchema,
+    ManualRefundLogSchema
 )
 from app.parser import (
     parse_mobile_mumbaione,
@@ -486,6 +488,69 @@ def revert_upload(payload: RevertRequestSchema, db: Session = Depends(get_db)):
     except Exception as e:
         db.rollback()
         raise HTTPException(status_code=500, detail=f"Rollback transaction failed: {e}")
+
+
+@app.post("/api/reconcile/manual-refund")
+def create_manual_refund(payload: ManualRefundRequestSchema, db: Session = Depends(get_db)):
+    """
+    Registers a manual refund in the manual_refunds table
+    and updates the active status of the matched record in reconciliation_results.
+    """
+    try:
+        # 1. Insert into manual_refunds table
+        insert_query = text("""
+            INSERT INTO manual_refunds (order_id, ticket_no, amount, original_status, updated_status, note)
+            VALUES (:order_id, :ticket_no, :amount, 'Liable for Refund', 'Manually Refunded', :note)
+        """)
+        db.execute(insert_query, {
+            "order_id": payload.order_id or '',
+            "ticket_no": payload.ticket_no or '',
+            "amount": payload.amount or 0.0,
+            "note": payload.note
+        })
+
+        # 2. Update active reconciliation results
+        update_query = text("""
+            UPDATE reconciliation_results r
+            SET recon_status = 'Manually Refunded',
+                notes = COALESCE(notes || ' | ', '') || 'Manual Refund: ' || :note
+            WHERE (NULLIF(order_id, '') = NULLIF(:order_id, '') OR (NULLIF(order_id, '') IS NULL AND NULLIF(:order_id, '') IS NULL))
+              AND (NULLIF(ticket_no, '') = NULLIF(:ticket_no, '') OR (NULLIF(ticket_no, '') IS NULL AND NULLIF(:ticket_no, '') IS NULL))
+              AND recon_status = 'Liable for Refund'
+        """)
+        update_res = db.execute(update_query, {
+            "order_id": payload.order_id or '',
+            "ticket_no": payload.ticket_no or '',
+            "note": payload.note
+        })
+        
+        db.commit()
+        return {
+            "success": True,
+            "message": "Manual refund registered and applied successfully.",
+            "updated_count": update_res.rowcount
+        }
+    except Exception as e:
+        db.rollback()
+        raise HTTPException(status_code=500, detail=f"Failed to record manual refund: {e}")
+
+
+@app.get("/api/reconcile/manual-refunds/logs", response_model=List[ManualRefundLogSchema])
+def get_manual_refund_logs(db: Session = Depends(get_db)):
+    """
+    Fetches the full historical audit log of all manual tag updates.
+    """
+    try:
+        logs_query = text("""
+            SELECT id, order_id, ticket_no, amount, original_status, updated_status, note, updated_at
+            FROM manual_refunds
+            ORDER BY updated_at DESC
+        """)
+        results = db.execute(logs_query).mappings().all()
+        return results
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Failed to fetch manual refund audit logs: {e}")
+
 
 @app.post("/api/reconcile/run", response_model=ReconciliationRunResponse)
 def run_reconciliation():
