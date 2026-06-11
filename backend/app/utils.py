@@ -54,33 +54,43 @@ def _clean_str_cols(df: pd.DataFrame) -> pd.DataFrame:
 def to_datetime_robust(series: pd.Series) -> pd.Series:
     """
     Robustly parses a Series of date/time strings into a Series of datetime objects.
-    Attempts multiple formats sequentially to handle varied format inputs cleanly.
+    Vectorized string cleaning and Millisecond format priority for ultra-high performance.
     """
     if series.empty:
         return series
         
-    def pre_clean_val(v):
-        if pd.isna(v):
-            return None
-        v_str = str(v).strip()
-        if v_str.lower() in ('nan', 'none', '', 'nat'):
-            return None
-        # Clean MM:SS.f or HH:MM:SS.f values that lack a date component
-        if ':' in v_str and '-' not in v_str and '/' not in v_str:
-            parts = v_str.split(':')
-            if len(parts) == 2:
-                minute_part = parts[0].strip()
-                second_part = parts[1].strip()
-                if minute_part.isdigit():
-                    return f"2026-04-01 00:{int(minute_part):02d}:{second_part}"
-            elif len(parts) == 3:
-                return f"2026-04-01 {v_str}"
-        return v_str
+    if pd.api.types.is_datetime64_any_dtype(series):
+        return series
 
-    cleaned_series = series.apply(pre_clean_val)
-    s = cleaned_series.astype(str).str.strip()
+    # Vectorized check for nan-like values
+    s = series.astype(str).str.strip()
+    null_mask = series.isna() | s.str.lower().isin({'nan', 'none', '', 'nat'})
+    
+    # Vectorized clean for lacking date component (e.g. MM:SS.f or HH:MM:SS.f)
+    no_date_mask = s.str.contains(':', regex=False) & ~s.str.contains('-', regex=False) & ~s.str.contains('/', regex=False) & ~null_mask
+    
+    if no_date_mask.any():
+        # Count parts by colons
+        parts_count = s[no_date_mask].str.count(':') + 1
+        
+        # 2 parts: MM:SS.f -> prepend '2026-04-01 00:'
+        mask_2parts = no_date_mask & (parts_count == 2)
+        if mask_2parts.any():
+            split_df = s[mask_2parts].str.split(':', n=1, expand=True)
+            minutes = split_df[0].str.strip().str.zfill(2)
+            seconds = split_df[1].str.strip()
+            s.loc[mask_2parts] = "2026-04-01 00:" + minutes + ":" + seconds
+            
+        # 3 parts: HH:MM:SS.f -> prepend '2026-04-01 '
+        mask_3parts = no_date_mask & (parts_count == 3)
+        if mask_3parts.any():
+            s.loc[mask_3parts] = "2026-04-01 " + s[mask_3parts]
+            
+    # Set null mask to None so pd.to_datetime handles them as NaT
+    s[null_mask] = None
     
     formats = [
+        '%Y-%m-%d %H:%M:%S.%f', # Millisecond format first for high-performance direct hits
         '%Y-%m-%d %H:%M:%S',
         '%d.%m.%Y %H:%M:%S',
         '%d-%m-%Y %H:%M:%S',
@@ -95,7 +105,7 @@ def to_datetime_robust(series: pd.Series) -> pd.Series:
     parsed = pd.Series(pd.NaT, index=series.index)
     
     for fmt in formats:
-        unparsed_mask = parsed.isna() & ~cleaned_series.isna() & (~s.str.lower().isin({'nan', 'none', '', 'nat'}))
+        unparsed_mask = parsed.isna() & ~null_mask
         if not unparsed_mask.any():
             break
         try:
@@ -104,8 +114,7 @@ def to_datetime_robust(series: pd.Series) -> pd.Series:
         except Exception:
             pass
             
-    # Fallback to generic parsing for any remaining values
-    unparsed_mask = parsed.isna() & ~cleaned_series.isna() & (~s.str.lower().isin({'nan', 'none', '', 'nat'}))
+    unparsed_mask = parsed.isna() & ~null_mask
     if unparsed_mask.any():
         try:
             parsed_sub = pd.to_datetime(s[unparsed_mask], errors='coerce')
@@ -123,6 +132,31 @@ def normalize_key_series(series: pd.Series) -> pd.Series:
     s = series.astype(str).str.strip()
     return s.where(~s.str.lower().isin({'nan', 'none', ''}), other=pd.NA)
 
+def fetch_existing_keys_chunked(
+    db: Session,
+    query_template: str,
+    keys: List[str],
+    is_tuple: bool = False,
+    chunk_size: int = 10000
+) -> set:
+    """
+    Executes a SELECT query in chunks to find existing keys in the database.
+    Prevents database planner overhead and parameter binding limits for large sets.
+    """
+    if not keys:
+        return set()
+
+    existing = set()
+    for i in range(0, len(keys), chunk_size):
+        chunk = tuple(keys[i : i + chunk_size])
+        res = db.execute(text(query_template), {"k": chunk})
+        if is_tuple:
+            existing.update((str(r[0]).strip(), str(r[1]).strip()) for r in res)
+        else:
+            existing.update(str(r[0]).strip() for r in res)
+
+    return existing
+
 def deduplicate_dataframe(combined_df: pd.DataFrame, table_name: str, db: Session) -> pd.DataFrame:
     """
     Deduplicates a DataFrame against existing keys in the PostgreSQL database.
@@ -134,15 +168,13 @@ def deduplicate_dataframe(combined_df: pd.DataFrame, table_name: str, db: Sessio
     if table_name == 'stg_mobile_mumbaione' and 'pg_reference_no' in combined_df.columns:
         clean_col = normalize_key_series(combined_df['pg_reference_no'])
         clean_keys = clean_col.dropna().unique().tolist()
-        existing = {
-            str(r[0]).strip()
-            for r in db.execute(
-                text("SELECT pg_reference_no FROM stg_mobile_mumbaione WHERE pg_reference_no IN :k"),
-                {"k": tuple(clean_keys)}
-            )
-        } if clean_keys else set()
+        existing = fetch_existing_keys_chunked(
+            db,
+            "SELECT pg_reference_no FROM stg_mobile_mumbaione WHERE pg_reference_no IN :k",
+            clean_keys
+        )
         if existing:
-            sample = sorted(existing)[:20]
+            sample = sorted(list(existing)[:100])[:20]
             print(f"[DUPLICATE] stg_mobile_mumbaione: {len(existing)} duplicate pg_reference_no value(s) found in DB.")
             print(f"[DUPLICATE] Sample keys (up to 20): {sample}")
         combined_df = combined_df[clean_col.notna() & ~clean_col.isin(existing)]
@@ -150,15 +182,13 @@ def deduplicate_dataframe(combined_df: pd.DataFrame, table_name: str, db: Sessio
     elif table_name == 'stg_mobile_metroconnect3' and 'ticket_no' in combined_df.columns:
         clean_col = normalize_key_series(combined_df['ticket_no'])
         clean_keys = clean_col.dropna().unique().tolist()
-        existing = {
-            str(r[0]).strip()
-            for r in db.execute(
-                text("SELECT ticket_no FROM stg_mobile_metroconnect3 WHERE ticket_no IN :k"),
-                {"k": tuple(clean_keys)}
-            )
-        } if clean_keys else set()
+        existing = fetch_existing_keys_chunked(
+            db,
+            "SELECT ticket_no FROM stg_mobile_metroconnect3 WHERE ticket_no IN :k",
+            clean_keys
+        )
         if existing:
-            sample = sorted(existing)[:20]
+            sample = sorted(list(existing)[:100])[:20]
             print(f"[DUPLICATE] stg_mobile_metroconnect3: {len(existing)} duplicate ticket_no value(s) found in DB.")
             print(f"[DUPLICATE] Sample keys (up to 20): {sample}")
         combined_df = combined_df[clean_col.notna() & ~clean_col.isin(existing)]
@@ -166,15 +196,13 @@ def deduplicate_dataframe(combined_df: pd.DataFrame, table_name: str, db: Sessio
     elif table_name == 'stg_mobile_ondc' and 'order_id' in combined_df.columns:
         clean_col = normalize_key_series(combined_df['order_id'])
         clean_keys = clean_col.dropna().unique().tolist()
-        existing = {
-            str(r[0]).strip()
-            for r in db.execute(
-                text("SELECT order_id FROM stg_mobile_ondc WHERE order_id IN :k"),
-                {"k": tuple(clean_keys)}
-            )
-        } if clean_keys else set()
+        existing = fetch_existing_keys_chunked(
+            db,
+            "SELECT order_id FROM stg_mobile_ondc WHERE order_id IN :k",
+            clean_keys
+        )
         if existing:
-            sample = sorted(existing)[:20]
+            sample = sorted(list(existing)[:100])[:20]
             print(f"[DUPLICATE] stg_mobile_ondc: {len(existing)} duplicate order_id value(s) found in DB.")
             print(f"[DUPLICATE] Sample keys (up to 20): {sample}")
         combined_df = combined_df[clean_col.notna() & ~clean_col.isin(existing)]
@@ -183,15 +211,14 @@ def deduplicate_dataframe(combined_df: pd.DataFrame, table_name: str, db: Sessio
         clean_pgi = normalize_key_series(combined_df['pgi_ref_no'])
         clean_type = normalize_key_series(combined_df['transaction_type'])
         clean_keys = clean_pgi.dropna().unique().tolist()
-        existing = {
-            (str(r[0]).strip(), str(r[1]).strip())
-            for r in db.execute(
-                text("SELECT pgi_ref_no, transaction_type FROM stg_pg_transactions WHERE pgi_ref_no IN :k"),
-                {"k": tuple(clean_keys)}
-            )
-        } if clean_keys else set()
+        existing = fetch_existing_keys_chunked(
+            db,
+            "SELECT pgi_ref_no, transaction_type FROM stg_pg_transactions WHERE pgi_ref_no IN :k",
+            clean_keys,
+            is_tuple=True
+        )
         if existing:
-            sample = sorted(existing)[:20]
+            sample = sorted(list(existing)[:100])[:20]
             print(f"[DUPLICATE] stg_pg_transactions: {len(existing)} duplicate (pgi_ref_no, transaction_type) pair(s) found in DB.")
             print(f"[DUPLICATE] Sample pairs (up to 20): {sample}")
         combo = list(zip(clean_pgi.fillna(''), clean_type.fillna('')))
@@ -204,15 +231,13 @@ def deduplicate_dataframe(combined_df: pd.DataFrame, table_name: str, db: Sessio
     elif table_name == 'stg_afc_transactions' and 'slave_qr_no' in combined_df.columns:
         clean_col = normalize_key_series(combined_df['slave_qr_no'])
         clean_keys = clean_col.dropna().unique().tolist()
-        existing = {
-            str(r[0]).strip()
-            for r in db.execute(
-                text("SELECT slave_qr_no FROM stg_afc_transactions WHERE slave_qr_no IN :k"),
-                {"k": tuple(clean_keys)}
-            )
-        } if clean_keys else set()
+        existing = fetch_existing_keys_chunked(
+            db,
+            "SELECT slave_qr_no FROM stg_afc_transactions WHERE slave_qr_no IN :k",
+            clean_keys
+        )
         if existing:
-            sample = sorted(existing)[:20]
+            sample = sorted(list(existing)[:100])[:20]
             print(f"[DUPLICATE] stg_afc_transactions: {len(existing)} duplicate slave_qr_no value(s) found in DB.")
             print(f"[DUPLICATE] Sample keys (up to 20): {sample}")
         combined_df = combined_df[clean_col.notna() & ~clean_col.isin(existing)]
