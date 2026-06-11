@@ -137,11 +137,11 @@ def run_reconciliation_process() -> List[Dict[str, Any]]:
         -- Part A: App-led records
         SELECT 
             'MetroConnect3' AS app_source,
-            NULL AS order_id,
+            m.ticket_no AS order_id,
             m.ticket_no AS ticket_no,
             p_set.pgi_ref_no AS pg_ref_no,
             m.amount AS amount,
-            m.created_at AS transaction_time,
+            COALESCE(p_set.date_of_txn, a.date, m.created_at) AS transaction_time,
             CASE 
                 -- Rule 1: Refunded
                 WHEN EXISTS (
@@ -152,13 +152,13 @@ def run_reconciliation_process() -> List[Dict[str, Any]]:
                 ) OR m.status = 'refunded' THEN 'Refunded'
 
                 -- Rule 2: Settled
-                WHEN p_set.id IS NOT NULL AND a.slave_qr_no IS NOT NULL THEN 'Settled'
+                WHEN p_set.id IS NOT NULL AND a.order_id IS NOT NULL THEN 'Settled'
 
                 -- Rule 3: Liable for Refund
-                WHEN p_set.id IS NOT NULL AND a.slave_qr_no IS NULL THEN 'Liable for Refund'
+                WHEN p_set.id IS NOT NULL AND a.order_id IS NULL THEN 'Liable for Refund'
 
                 -- Rule 4: Failed Transaction (App only)
-                WHEN p_set.id IS NULL AND a.slave_qr_no IS NULL THEN 'Failed Transaction'
+                WHEN p_set.id IS NULL AND a.order_id IS NULL THEN 'Failed Transaction'
 
                 ELSE 'Discrepancy'
             END AS recon_status,
@@ -169,19 +169,19 @@ def run_reconciliation_process() -> List[Dict[str, Any]]:
                     AND p_ref.transaction_type = 'REFUND'
                     AND p_ref.app_source = 'MetroConnect3'
                 ) OR m.status = 'refunded'
-                    THEN 'Refund confirmed. Present in App' || CASE WHEN p_set.id IS NOT NULL THEN ', PG' ELSE '' END || CASE WHEN a.slave_qr_no IS NOT NULL THEN ', AFC' ELSE '' END || '.'
-                WHEN p_set.id IS NOT NULL AND a.slave_qr_no IS NOT NULL
+                    THEN 'Refund confirmed. Present in App' || CASE WHEN p_set.id IS NOT NULL THEN ', PG' ELSE '' END || CASE WHEN a.order_id IS NOT NULL THEN ', AFC' ELSE '' END || '.'
+                WHEN p_set.id IS NOT NULL AND a.order_id IS NOT NULL
                     THEN 'Matched across all 3 systems: App, PG, and AFC gates.'
-                WHEN p_set.id IS NOT NULL AND a.slave_qr_no IS NULL
+                WHEN p_set.id IS NOT NULL AND a.order_id IS NULL
                     THEN 'Present in App and PG but missing in AFC gates. Passenger may have travelled without gate scan.'
-                WHEN p_set.id IS NULL AND a.slave_qr_no IS NULL
+                WHEN p_set.id IS NULL AND a.order_id IS NULL
                     THEN 'Failed or aborted payment. Record only in App – no PG settlement, no AFC gate scan.'
                 ELSE 'Unclassified state. Manual review required.'
             END AS notes,
             CASE
-                WHEN p_set.id IS NOT NULL AND a.slave_qr_no IS NOT NULL THEN 'App,PG,AFC'
-                WHEN p_set.id IS NOT NULL AND a.slave_qr_no IS NULL THEN 'App,PG'
-                WHEN p_set.id IS NULL AND a.slave_qr_no IS NOT NULL THEN 'App,AFC'
+                WHEN p_set.id IS NOT NULL AND a.order_id IS NOT NULL THEN 'App,PG,AFC'
+                WHEN p_set.id IS NOT NULL AND a.order_id IS NULL THEN 'App,PG'
+                WHEN p_set.id IS NULL AND a.order_id IS NOT NULL THEN 'App,AFC'
                 ELSE 'App'
             END AS data_sources
         FROM stg_mobile_metroconnect3 m
@@ -190,14 +190,15 @@ def run_reconciliation_process() -> List[Dict[str, Any]]:
             AND p_set.transaction_type = 'SETTLED'
             AND p_set.app_source = 'MetroConnect3'
         LEFT JOIN stg_afc_transactions a 
-            ON m.ticket_no = a.slave_qr_no
+            ON m.ticket_no = a.order_id
+            AND a.operator_name = 'MQR MMRCL APP'
 
         UNION ALL
 
         -- Part B: PG-only records for MetroConnect3
         SELECT
             'MetroConnect3' AS app_source,
-            NULL AS order_id,
+            p.ref_1 AS order_id,
             p.ref_1 AS ticket_no,
             p.pgi_ref_no AS pg_ref_no,
             p.gross_amount AS amount,
