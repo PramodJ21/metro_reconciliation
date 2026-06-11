@@ -5,6 +5,7 @@ import FileUploader from './components/FileUploader';
 import ResultsBrowser from './components/ResultsBrowser';
 import IngestionLogger from './components/IngestionLogger';
 import ErrorDisplay from './components/ErrorDisplay';
+import { API_BASE_URL } from './config';
 
 function App() {
   const [dbStatus, setDbStatus] = useState(null);
@@ -40,7 +41,7 @@ function App() {
   // Fetch db row metrics
   const fetchDbStatus = async () => {
     try {
-      const response = await axios.get("http://127.0.0.1:8000/api/db/status");
+      const response = await axios.get(`${API_BASE_URL}/api/db/status`);
       setDbStatus(response.data);
     } catch (err) {
       console.error("Failed to connect to backend db status API:", err);
@@ -51,7 +52,7 @@ function App() {
   // Fetch ingestion logs from backend
   const fetchIngestionLogs = async () => {
     try {
-      const response = await axios.get("http://127.0.0.1:8000/api/reconcile/logs");
+      const response = await axios.get(`${API_BASE_URL}/api/reconcile/logs`);
       setIngestionLogs(response.data);
     } catch (err) {
       console.error("Failed to fetch ingestion logs:", err);
@@ -61,7 +62,7 @@ function App() {
   // Fetch summaries from db
   const fetchSummaries = async () => {
     try {
-      const response = await axios.get("http://127.0.0.1:8000/api/reconcile/summary");
+      const response = await axios.get(`${API_BASE_URL}/api/reconcile/summary`);
       setSummaries(response.data);
     } catch (err) {
       console.error("Failed to fetch reconciliation summaries:", err);
@@ -119,7 +120,7 @@ function App() {
     }, 450);
 
     try {
-      const response = await axios.post('http://127.0.0.1:8000/api/reconcile/run');
+      const response = await axios.post(`${API_BASE_URL}/api/reconcile/run`);
       clearInterval(progressInterval);
       
       if (response.data.success) {
@@ -177,7 +178,7 @@ function App() {
         message: 'Fetching full transaction tables...'
       });
       
-      const response = await axios.get("http://127.0.0.1:8000/api/reconcile/results?limit=500");
+      const response = await axios.get(`${API_BASE_URL}/api/reconcile/results?limit=1000000`);
       setGlobalLoading(prev => ({ ...prev, progress: 70, message: 'Structuring CSV text...' }));
       
       const results = response.data?.results || [];

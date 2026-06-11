@@ -1,5 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import axios from 'axios';
+import { API_BASE_URL } from '../config';
 
 const IngestionLogger = ({ ingestionLogs = [], onRevertSuccess, setGlobalLoading, showAlert }) => {
   const [revertingId, setRevertingId] = useState(null);
@@ -19,7 +20,7 @@ const IngestionLogger = ({ ingestionLogs = [], onRevertSuccess, setGlobalLoading
 
   const fetchManualRefundLogs = async () => {
     try {
-      const response = await axios.get('http://127.0.0.1:8000/api/reconcile/manual-refunds/logs');
+      const response = await axios.get(`${API_BASE_URL}/api/reconcile/manual-refunds/logs`);
       setManualRefundLogs(response.data);
     } catch (err) {
       console.error('Failed to fetch manual tag update logs:', err);
@@ -118,7 +119,7 @@ const IngestionLogger = ({ ingestionLogs = [], onRevertSuccess, setGlobalLoading
     }, 250);
 
     try {
-      const response = await axios.post("http://127.0.0.1:8000/api/reconcile/revert", { log_id: logId });
+      const response = await axios.post(`${API_BASE_URL}/api/reconcile/revert`, { log_id: logId });
       clearInterval(progressInterval);
       
       if (setGlobalLoading) {

@@ -1,5 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import axios from 'axios';
+import { API_BASE_URL } from '../config';
 
 // Status legend definitions — what each tag means
 const STATUS_LEGEND = [
@@ -222,7 +223,7 @@ const ResultsBrowser = ({ refreshTrigger, showAlert }) => {
       if (fromDate) params.from_date = fromDate;
       if (toDate) params.to_date = toDate;
 
-      const response = await axios.get('http://127.0.0.1:8000/api/reconcile/results', { params });
+      const response = await axios.get(`${API_BASE_URL}/api/reconcile/results`, { params });
       setResults(response.data.results);
       setTotal(response.data.total);
     } catch (err) {
@@ -236,7 +237,7 @@ const ResultsBrowser = ({ refreshTrigger, showAlert }) => {
     if (!manualRefundTarget || !manualRefundNote.trim()) return;
     setSubmittingManualRefund(true);
     try {
-      await axios.post('http://127.0.0.1:8000/api/reconcile/manual-refund', {
+      await axios.post(`${API_BASE_URL}/api/reconcile/manual-refund`, {
         order_id: manualRefundTarget.order_id || null,
         ticket_no: manualRefundTarget.ticket_no || null,
         amount: manualRefundTarget.amount || null,

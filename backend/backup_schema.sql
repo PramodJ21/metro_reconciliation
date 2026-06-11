@@ -2,7 +2,6 @@
 -- PostgreSQL database dump
 --
 
-\restrict pGekhw3iVuu02zzg8vSti0F5ybSooKp21Vc2TL6iMdDaKq3h7c45vUhBxAyfbaf
 
 -- Dumped from database version 18.4
 -- Dumped by pg_dump version 18.4
@@ -668,5 +667,4 @@ CREATE INDEX idx_stg_pg_type_src ON public.stg_pg_transactions USING btree (tran
 -- PostgreSQL database dump complete
 --
 
-\unrestrict pGekhw3iVuu02zzg8vSti0F5ybSooKp21Vc2TL6iMdDaKq3h7c45vUhBxAyfbaf
 

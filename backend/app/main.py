@@ -1,8 +1,12 @@
 import io
 import json
 import pandas as pd
+import logging
+import os
+from datetime import datetime
 from typing import List, Optional
-from fastapi import FastAPI, UploadFile, File, Form, Query, HTTPException, Depends
+from contextlib import asynccontextmanager
+from fastapi import FastAPI, UploadFile, File, Form, Query, HTTPException, Depends, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import StreamingResponse
 from sqlalchemy import text
@@ -26,9 +30,43 @@ from app.utils import deduplicate_dataframe
 from app.tasks import parse_ingested_file
 from app import repository
 
+logger = logging.getLogger(__name__)
+
+# Dead-Letter Queue helper to store invalid uploaded files
+def save_to_dlq(filename: str, payloads: List[tuple]):
+    try:
+        dlq_dir = "backend/temp_uploads/dlq"
+        os.makedirs(dlq_dir, exist_ok=True)
+        
+        # Find file bytes in payloads
+        file_bytes = None
+        for fname, fbytes in payloads:
+            if fname == filename:
+                file_bytes = fbytes
+                break
+        
+        if file_bytes:
+            timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+            dlq_path = os.path.join(dlq_dir, f"{timestamp}_{filename}")
+            with open(dlq_path, "wb") as f:
+                f.write(file_bytes)
+            logger.warning(f"Invalid spreadsheet parsing triggered. File saved to DLQ: {dlq_path}")
+    except Exception as dlq_err:
+        logger.error(f"Failed to write file {filename} to DLQ: {dlq_err}")
+
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    """Run database DDL statements on startup to guarantee tables exist"""
+    try:
+        execute_ddl()
+    except Exception as e:
+        logger.error(f"Error executing database DDL on startup: {e}")
+    yield
+
 app = FastAPI(
     title=settings.PROJECT_NAME,
-    description="Backend API for high-performance metro booking transaction reconciliation."
+    description="Backend API for high-performance metro booking transaction reconciliation.",
+    lifespan=lifespan
 )
 
 # Enable CORS for frontend integration
@@ -40,14 +78,6 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-@app.on_event("startup")
-def startup_event() -> None:
-    """Run database DDL statements on startup to guarantee tables exist"""
-    try:
-        execute_ddl()
-    except Exception as e:
-        print(f"Error executing database DDL on startup: {e}")
-
 @app.get("/")
 def read_root() -> dict:
     return {
@@ -56,8 +86,12 @@ def read_root() -> dict:
         "docs_url": "/docs"
     }
 
+MAX_FILE_SIZE = 50 * 1024 * 1024 # 50 MB
+ALLOWED_EXTENSIONS = {'.xlsx', '.xls', '.csv'}
+
 @app.post("/api/reconcile/upload")
 async def upload_files(
+    request: Request,
     app_name: str = Form(..., description="App: 'mumbaione', 'metroconnect3', 'ondc'"),
     channel: str = Form(..., description="Channel: 'mobile', 'payment_gateway', 'afc'"),
     clear_existing: bool = Form(False, description="Clear existing data in the target staging table first"),
@@ -69,6 +103,25 @@ async def upload_files(
     parses them concurrently in secondary processes, and bulk inserts them into PostgreSQL.
     Streams real-time progress back to the client using Server-Sent Events (SSE).
     """
+    # 1. Enforce size and type limits before reading files into memory
+    for uf in files:
+        filename = uf.filename or ""
+        ext = os.path.splitext(filename.lower())[1]
+        if ext not in ALLOWED_EXTENSIONS:
+            raise HTTPException(
+                status_code=400,
+                detail=f"Invalid file extension for {filename}. Only .xlsx, .xls, and .csv files are allowed."
+            )
+        
+        # Determine file size
+        uf.file.seek(0, 2)
+        size = uf.file.tell()
+        uf.file.seek(0)
+        if size > MAX_FILE_SIZE:
+            raise HTTPException(
+                status_code=400,
+                detail=f"File {filename} exceeds the maximum allowed size of 50MB."
+            )
 
     def _sse(event_type: str, payload: dict) -> str:
         payload["event"] = event_type
@@ -79,7 +132,7 @@ async def upload_files(
     for uf in files:
         file_payloads.append((uf.filename, uf.file.read()))
 
-    def event_generator():
+    async def event_generator():
         _app = app_name.strip().lower()
         _ch  = channel.strip().lower()
 
@@ -113,7 +166,6 @@ async def upload_files(
             yield _sse("error", {"message": "Could not resolve target database staging table."})
             return
 
-
         total_files     = len(file_payloads)
         parsed_dfs      = []
         processed_files = []
@@ -125,8 +177,9 @@ async def upload_files(
 
         import concurrent.futures
 
-        # Use ProcessPoolExecutor to parse concurrently (bypasses GIL)
-        max_workers = min(8, len(file_payloads))
+        # Cap ProcessPoolExecutor to leave at least 1 CPU core free
+        cpu_count = os.cpu_count() or 1
+        max_workers = max(1, min(cpu_count - 1, 4, len(file_payloads)))
         yield _sse("progress", {
             "progress": 5,
             "message": f"Starting parallel parsing of {total_files} file(s) using {max_workers} processes..."
@@ -139,6 +192,12 @@ async def upload_files(
 
             completed_count = 0
             for future in concurrent.futures.as_completed(futures):
+                if await request.is_disconnected():
+                    logger.warning("Client disconnected during parallel parsing, aborting upload.")
+                    for fut in futures:
+                        fut.cancel()
+                    return
+
                 completed_count += 1
                 base_progress = 5 + int((completed_count / total_files) * 55)
 
@@ -162,11 +221,17 @@ async def upload_files(
                     })
 
                 except ValueError as ve:
+                    save_to_dlq(filename, file_payloads)
                     yield _sse("error", {"message": f"Wrong file structure: {str(ve)}", "filename": filename})
                     return
                 except Exception as e:
+                    save_to_dlq(filename, file_payloads)
                     yield _sse("error", {"message": f"Parsing error in file: {str(e)}"})
                     return
+
+        if await request.is_disconnected():
+            logger.warning("Client disconnected post-parsing, aborting upload.")
+            return
 
         if not parsed_dfs:
             yield _sse("error", {"message": "All uploaded files parsed into empty DataFrames. No records to ingest."})
@@ -195,7 +260,11 @@ async def upload_files(
 
             self_dups = _before_self - len(combined_df)
             if self_dups > 0:
-                print(f"[BATCH SELF-DEDUP] Removed {self_dups:,} duplicate rows within the uploaded batch data.")
+                logger.info(f"[BATCH SELF-DEDUP] Removed {self_dups:,} duplicate rows within the uploaded batch data.")
+
+            if await request.is_disconnected():
+                logger.warning("Client disconnected before deduplication database checks, aborting.")
+                return
 
             if not clear_existing:
                 yield _sse("progress", {
@@ -217,6 +286,10 @@ async def upload_files(
                     "message": f"Deduplication complete{dup_msg}. {len(combined_df):,} net new records ready."
                 })
 
+            if await request.is_disconnected():
+                logger.warning("Client disconnected before bulk insert execution, aborting.")
+                return
+
             if clear_existing:
                 try:
                     db.execute(
@@ -226,7 +299,7 @@ async def upload_files(
                     db.commit()
                 except Exception as le:
                     db.rollback()
-                    print(f"Warning: Failed to update previous logs on truncate: {le}")
+                    logger.warning(f"Failed to update previous logs on truncate: {le}")
 
             yield _sse("progress", {
                 "progress": 82,
@@ -264,7 +337,7 @@ async def upload_files(
                 db.commit()
             except Exception as le:
                 db.rollback()
-                print(f"Warning: Failed to write to ingestion_logs: {le}")
+                logger.warning(f"Failed to write to ingestion_logs: {le}")
 
             yield _sse("completed", {
                 "progress": 100,
@@ -280,7 +353,8 @@ async def upload_files(
         except ValueError as ve:
             yield _sse("error", {"message": str(ve)})
         except Exception as e:
-            yield _sse("error", {"message": f"Database ingestion error: {str(e)}"})
+            logger.exception("Database ingestion error occurred")
+            yield _sse("error", {"message": "Internal server error. Check database logs."})
 
     return StreamingResponse(
         event_generator(),
@@ -291,6 +365,7 @@ async def upload_files(
         }
     )
 
+
 @app.get("/api/reconcile/logs")
 def get_ingestion_logs(db: Session = Depends(get_db)) -> List[dict]:
     """
@@ -299,7 +374,8 @@ def get_ingestion_logs(db: Session = Depends(get_db)) -> List[dict]:
     try:
         return repository.get_ingestion_logs_from_db(db)
     except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Failed to fetch ingestion logs: {e}")
+        logger.exception("Failed to fetch ingestion logs")
+        raise HTTPException(status_code=500, detail="Internal server error. Check database logs.")
 
 @app.post("/api/reconcile/revert")
 def revert_upload(payload: RevertRequestSchema, db: Session = Depends(get_db)) -> dict:
@@ -321,11 +397,14 @@ def revert_upload(payload: RevertRequestSchema, db: Session = Depends(get_db)) -
             "deleted_count": deleted_count,
             "table_name": table_name
         }
+    except HTTPException:
+        raise
     except ValueError as ve:
         raise HTTPException(status_code=400, detail=str(ve))
     except Exception as e:
         db.rollback()
-        raise HTTPException(status_code=500, detail=f"Rollback transaction failed: {e}")
+        logger.exception("Revert upload failed due to database error")
+        raise HTTPException(status_code=500, detail="Internal server error. Check database logs.")
 
 @app.post("/api/reconcile/manual-refund")
 def create_manual_refund(payload: ManualRefundRequestSchema, db: Session = Depends(get_db)) -> dict:
@@ -342,12 +421,15 @@ def create_manual_refund(payload: ManualRefundRequestSchema, db: Session = Depen
             "message": f"Manual refund registered and applied successfully from original status '{orig_status}'.",
             "updated_count": updated_count
         }
+    except HTTPException:
+        raise
     except KeyError as ke:
         db.rollback()
         raise HTTPException(status_code=404, detail=str(ke))
     except Exception as e:
         db.rollback()
-        raise HTTPException(status_code=500, detail=f"Failed to record manual refund: {e}")
+        logger.exception("Manual refund creation failed due to database error")
+        raise HTTPException(status_code=500, detail="Internal server error. Check database logs.")
 
 @app.get("/api/reconcile/manual-refunds/logs", response_model=List[ManualRefundLogSchema])
 def get_manual_refund_logs(db: Session = Depends(get_db)) -> List[dict]:
@@ -357,7 +439,8 @@ def get_manual_refund_logs(db: Session = Depends(get_db)) -> List[dict]:
     try:
         return repository.get_manual_refunds_from_db(db)
     except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Failed to fetch manual refund audit logs: {e}")
+        logger.exception("Failed to fetch manual refund logs")
+        raise HTTPException(status_code=500, detail="Internal server error. Check database logs.")
 
 @app.post("/api/reconcile/run", response_model=ReconciliationRunResponse)
 def run_reconciliation() -> ReconciliationRunResponse:
@@ -373,7 +456,8 @@ def run_reconciliation() -> ReconciliationRunResponse:
             summaries=summaries
         )
     except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Failed to execute reconciliation queries: {e}")
+        logger.exception("Reconciliation process execution failed")
+        raise HTTPException(status_code=500, detail="Internal server error. Check database logs.")
 
 @app.get("/api/reconcile/summary", response_model=List[ReconciliationSummary])
 def get_summaries() -> List[ReconciliationSummary]:
@@ -387,7 +471,8 @@ def get_summaries() -> List[ReconciliationSummary]:
         from app.schemas import ReconciliationSummary as SummarySchema
         return [SummarySchema(**s) for s in summaries]
     except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Failed to fetch summaries: {e}")
+        logger.exception("Failed to fetch reconciliation summaries")
+        raise HTTPException(status_code=500, detail="Internal server error. Check database logs.")
 
 @app.get("/api/reconcile/results", response_model=PaginatedReconciliationResults)
 def get_results(
@@ -398,7 +483,7 @@ def get_results(
     from_date: Optional[str] = Query(None, description="Start date filter (YYYY-MM-DD)"),
     to_date: Optional[str] = Query(None, description="End date filter (YYYY-MM-DD)"),
     page: int = Query(1, ge=1, description="Page number"),
-    limit: int = Query(50, ge=1, le=500, description="Records per page"),
+    limit: int = Query(50, ge=1, le=1000000, description="Records per page"),
     db: Session = Depends(get_db)
 ) -> PaginatedReconciliationResults:
     """
@@ -416,7 +501,8 @@ def get_results(
             results=records_schemas
         )
     except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Failed to fetch reconciliation results: {e}")
+        logger.exception("Failed to fetch reconciliation results")
+        raise HTTPException(status_code=500, detail="Internal server error. Check database logs.")
 
 @app.get("/api/db/status", response_model=DatabaseStatusSchema)
 def db_status(db: Session = Depends(get_db)) -> DatabaseStatusSchema:
@@ -454,8 +540,9 @@ def db_status(db: Session = Depends(get_db)) -> DatabaseStatusSchema:
             metrics=metrics
         )
     except Exception as e:
+        logger.exception("Database status check failed")
         return DatabaseStatusSchema(
             connected=False,
-            message=f"Database connection failed: {e}",
+            message="Database connection failed. Check database logs.",
             metrics=[]
         )

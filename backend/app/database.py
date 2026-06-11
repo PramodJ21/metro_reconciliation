@@ -6,14 +6,18 @@ from app.config import settings
 from typing import Generator
 from sqlalchemy.orm import Session
 import pandas as pd
+import logging
+
+logger = logging.getLogger(__name__)
 
 # Create standard SQLAlchemy connection elements with connection pooling and pre-ping safety
 engine = create_engine(
     settings.DATABASE_URL,
-    pool_size=20,
-    max_overflow=10,
+    pool_size=10,        # Bounded pool size for corporate resource sharing
+    max_overflow=5,
     pool_recycle=3600,
-    pool_pre_ping=True
+    pool_pre_ping=True,
+    connect_args={"connect_timeout": 10, "options": "-c statement_timeout=30000"} # Statement timeout of 30 seconds
 )
 SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
 Base = declarative_base()
@@ -41,7 +45,7 @@ def execute_ddl() -> None:
 
     migration_statements = []
     if not is_partitioned:
-        print("[MIGRATION] Dropping old regular tables to recreate partitioned tables...")
+        logger.info("[MIGRATION] Dropping old regular tables to recreate partitioned tables...")
         migration_statements = [
             "DROP TABLE IF EXISTS stg_mobile_mumbaione CASCADE;",
             "DROP TABLE IF EXISTS stg_mobile_metroconnect3 CASCADE;",
@@ -80,18 +84,18 @@ def execute_ddl() -> None:
             PRIMARY KEY (id, transaction_date_time)
         ) PARTITION BY RANGE (transaction_date_time);
         """,
-        # Active months partitions (Defined as UNLOGGED for insertion speedup)
+        # Active months partitions
         """
-        CREATE UNLOGGED TABLE IF NOT EXISTS stg_mobile_mumbaione_y2026m04 PARTITION OF stg_mobile_mumbaione
+        CREATE TABLE IF NOT EXISTS stg_mobile_mumbaione_y2026m04 PARTITION OF stg_mobile_mumbaione
             FOR VALUES FROM ('2026-04-01 00:00:00') TO ('2026-05-01 00:00:00');
         """,
         """
-        CREATE UNLOGGED TABLE IF NOT EXISTS stg_mobile_mumbaione_y2026m05 PARTITION OF stg_mobile_mumbaione
+        CREATE TABLE IF NOT EXISTS stg_mobile_mumbaione_y2026m05 PARTITION OF stg_mobile_mumbaione
             FOR VALUES FROM ('2026-05-01 00:00:00') TO ('2026-06-01 00:00:00');
         """,
         # Default partition to catch out of bounds dates gracefully
         """
-        CREATE UNLOGGED TABLE IF NOT EXISTS stg_mobile_mumbaione_default PARTITION OF stg_mobile_mumbaione DEFAULT;
+        CREATE TABLE IF NOT EXISTS stg_mobile_mumbaione_default PARTITION OF stg_mobile_mumbaione DEFAULT;
         """,
         "CREATE INDEX IF NOT EXISTS idx_stg_mob_m1_tkt_no ON stg_mobile_mumbaione(ticket_number);",
         "CREATE INDEX IF NOT EXISTS idx_stg_mob_m1_pg_ref ON stg_mobile_mumbaione(pg_reference_no);",
@@ -120,18 +124,18 @@ def execute_ddl() -> None:
             PRIMARY KEY (id, created_at)
         ) PARTITION BY RANGE (created_at);
         """,
-        # Active months partitions (UNLOGGED)
+        # Active months partitions
         """
-        CREATE UNLOGGED TABLE IF NOT EXISTS stg_mobile_metroconnect3_y2026m04 PARTITION OF stg_mobile_metroconnect3
+        CREATE TABLE IF NOT EXISTS stg_mobile_metroconnect3_y2026m04 PARTITION OF stg_mobile_metroconnect3
             FOR VALUES FROM ('2026-04-01 00:00:00') TO ('2026-05-01 00:00:00');
         """,
         """
-        CREATE UNLOGGED TABLE IF NOT EXISTS stg_mobile_metroconnect3_y2026m05 PARTITION OF stg_mobile_metroconnect3
+        CREATE TABLE IF NOT EXISTS stg_mobile_metroconnect3_y2026m05 PARTITION OF stg_mobile_metroconnect3
             FOR VALUES FROM ('2026-05-01 00:00:00') TO ('2026-06-01 00:00:00');
         """,
         # Default partition
         """
-        CREATE UNLOGGED TABLE IF NOT EXISTS stg_mobile_metroconnect3_default PARTITION OF stg_mobile_metroconnect3 DEFAULT;
+        CREATE TABLE IF NOT EXISTS stg_mobile_metroconnect3_default PARTITION OF stg_mobile_metroconnect3 DEFAULT;
         """,
         "CREATE INDEX IF NOT EXISTS idx_stg_mob_mc3_tno ON stg_mobile_metroconnect3(ticket_no);",
         "CREATE INDEX IF NOT EXISTS idx_stg_mob_mc3_filesrc ON stg_mobile_metroconnect3(file_source);",
@@ -154,18 +158,18 @@ def execute_ddl() -> None:
             PRIMARY KEY (id, date)
         ) PARTITION BY RANGE (date);
         """,
-        # Active months partitions (UNLOGGED)
+        # Active months partitions
         """
-        CREATE UNLOGGED TABLE IF NOT EXISTS stg_mobile_ondc_y2026m04 PARTITION OF stg_mobile_ondc
+        CREATE TABLE IF NOT EXISTS stg_mobile_ondc_y2026m04 PARTITION OF stg_mobile_ondc
             FOR VALUES FROM ('2026-04-01 00:00:00') TO ('2026-05-01 00:00:00');
         """,
         """
-        CREATE UNLOGGED TABLE IF NOT EXISTS stg_mobile_ondc_y2026m05 PARTITION OF stg_mobile_ondc
+        CREATE TABLE IF NOT EXISTS stg_mobile_ondc_y2026m05 PARTITION OF stg_mobile_ondc
             FOR VALUES FROM ('2026-05-01 00:00:00') TO ('2026-06-01 00:00:00');
         """,
         # Default partition
         """
-        CREATE UNLOGGED TABLE IF NOT EXISTS stg_mobile_ondc_default PARTITION OF stg_mobile_ondc DEFAULT;
+        CREATE TABLE IF NOT EXISTS stg_mobile_ondc_default PARTITION OF stg_mobile_ondc DEFAULT;
         """,
         "CREATE INDEX IF NOT EXISTS idx_stg_mob_ondc_ord ON stg_mobile_ondc(order_id);",
         "CREATE INDEX IF NOT EXISTS idx_stg_mob_ondc_filesrc ON stg_mobile_ondc(file_source);",
@@ -203,18 +207,18 @@ def execute_ddl() -> None:
             PRIMARY KEY (id, date_of_txn)
         ) PARTITION BY RANGE (date_of_txn);
         """,
-        # Active months partitions (UNLOGGED)
+        # Active months partitions
         """
-        CREATE UNLOGGED TABLE IF NOT EXISTS stg_pg_transactions_y2026m04 PARTITION OF stg_pg_transactions
+        CREATE TABLE IF NOT EXISTS stg_pg_transactions_y2026m04 PARTITION OF stg_pg_transactions
             FOR VALUES FROM ('2026-04-01 00:00:00') TO ('2026-05-01 00:00:00');
         """,
         """
-        CREATE UNLOGGED TABLE IF NOT EXISTS stg_pg_transactions_y2026m05 PARTITION OF stg_pg_transactions
+        CREATE TABLE IF NOT EXISTS stg_pg_transactions_y2026m05 PARTITION OF stg_pg_transactions
             FOR VALUES FROM ('2026-05-01 00:00:00') TO ('2026-06-01 00:00:00');
         """,
         # Default partition
         """
-        CREATE UNLOGGED TABLE IF NOT EXISTS stg_pg_transactions_default PARTITION OF stg_pg_transactions DEFAULT;
+        CREATE TABLE IF NOT EXISTS stg_pg_transactions_default PARTITION OF stg_pg_transactions DEFAULT;
         """,
         "CREATE INDEX IF NOT EXISTS idx_stg_pg_pgi_ref ON stg_pg_transactions(pgi_ref_no);",
         "CREATE INDEX IF NOT EXISTS idx_stg_pg_ref_1 ON stg_pg_transactions(ref_1);",
@@ -240,18 +244,18 @@ def execute_ddl() -> None:
             PRIMARY KEY (id, date)
         ) PARTITION BY RANGE (date);
         """,
-        # Active months partitions (UNLOGGED)
+        # Active months partitions
         """
-        CREATE UNLOGGED TABLE IF NOT EXISTS stg_afc_transactions_y2026m04 PARTITION OF stg_afc_transactions
+        CREATE TABLE IF NOT EXISTS stg_afc_transactions_y2026m04 PARTITION OF stg_afc_transactions
             FOR VALUES FROM ('2026-04-01 00:00:00') TO ('2026-05-01 00:00:00');
         """,
         """
-        CREATE UNLOGGED TABLE IF NOT EXISTS stg_afc_transactions_y2026m05 PARTITION OF stg_afc_transactions
+        CREATE TABLE IF NOT EXISTS stg_afc_transactions_y2026m05 PARTITION OF stg_afc_transactions
             FOR VALUES FROM ('2026-05-01 00:00:00') TO ('2026-06-01 00:00:00');
         """,
         # Default partition
         """
-        CREATE UNLOGGED TABLE IF NOT EXISTS stg_afc_transactions_default PARTITION OF stg_afc_transactions DEFAULT;
+        CREATE TABLE IF NOT EXISTS stg_afc_transactions_default PARTITION OF stg_afc_transactions DEFAULT;
         """,
         "CREATE INDEX IF NOT EXISTS idx_stg_afc_sqr ON stg_afc_transactions(slave_qr_no);",
         "CREATE INDEX IF NOT EXISTS idx_stg_afc_ord ON stg_afc_transactions(order_id);",
@@ -346,10 +350,10 @@ def execute_ddl() -> None:
     ]
 
     with engine.begin() as connection:
-        print("Executing DDL statements to set up tables and indices...")
+        logger.info("Executing DDL statements to set up tables and indices...")
         for stmt in ddl_statements:
             connection.execute(text(stmt))
-        print("All tables and indices verified successfully.")
+        logger.info("All tables and indices verified successfully.")
 
 def bulk_insert_df(table_name: str, df: pd.DataFrame, truncate: bool = False) -> int:
     """
@@ -371,25 +375,24 @@ def bulk_insert_df(table_name: str, df: pd.DataFrame, truncate: bool = False) ->
     
     copy_query = f"COPY {table_name} ({','.join(columns)}) FROM STDIN WITH (FORMAT CSV, DELIMITER '\t', NULL '\\N')"
 
-    # 2. Establish direct connection using settings DATABASE_URL
-    conn = psycopg2.connect(settings.DATABASE_URL)
+    # 2. Establish connection using engine pool
+    conn = engine.raw_connection()
     try:
-        with conn:
-            with conn.cursor() as cur:
-                # Session tuning for ultra-high performance writes
-                cur.execute("SET synchronous_commit = OFF;")
-                cur.execute("SET work_mem = '256MB';")
-                
-                if truncate:
-                    print(f"Truncating table {table_name}...")
-                    cur.execute(f"TRUNCATE TABLE {table_name} CASCADE;")
-                
-                # Stream CSV/TSV directly into PostgreSQL using copy_expert
-                print(f"Bulk copy streaming {len(df):,} records into {table_name}...")
-                cur.copy_expert(copy_query, buffer)
-                
+        with conn.cursor() as cur:
+            if truncate:
+                logger.info(f"Truncating table {table_name}...")
+                cur.execute(f"TRUNCATE TABLE {table_name} CASCADE;")
+            
+            # Stream CSV/TSV directly into PostgreSQL using copy_expert
+            logger.info(f"Bulk copy streaming {len(df):,} records into {table_name}...")
+            cur.copy_expert(copy_query, buffer)
+            
         # Commit the transaction block
         conn.commit()
         return len(df)
+    except Exception as e:
+        logger.exception(f"Bulk insert failed for {table_name}: {str(e)}")
+        conn.rollback()
+        raise e
     finally:
         conn.close()

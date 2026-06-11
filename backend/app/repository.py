@@ -3,6 +3,9 @@ from datetime import datetime
 from sqlalchemy import text
 from sqlalchemy.orm import Session
 from app.schemas import ManualRefundRequestSchema
+import logging
+
+logger = logging.getLogger(__name__)
 
 def get_ingestion_logs_from_db(db: Session) -> List[Dict[str, Any]]:
     """
@@ -48,7 +51,17 @@ def revert_ingestion_in_db(db: Session, log_id: int) -> Optional[Tuple[str, int,
     if status == 'REVERTED':
         raise ValueError("This file upload has already been reverted.")
         
+    # SQL Injection prevention: Whitelist dynamic table names
+    VALID_STAGING_TABLES = {
+        'stg_mobile_mumbaione', 'stg_mobile_metroconnect3', 'stg_mobile_ondc',
+        'stg_pg_transactions', 'stg_afc_transactions', 'reconciliation_results'
+    }
+    if table_name not in VALID_STAGING_TABLES:
+        logger.error(f"SQL Injection attempt or invalid table name detected during reversion: {table_name}")
+        raise ValueError(f"Invalid table name detected: {table_name}")
+        
     # 2. Delete the transactions from the staging table
+    logger.info(f"Reverting file ingestion: filename={filename}, table={table_name}")
     delete_query = text(f"DELETE FROM {table_name} WHERE file_source = :filename")
     delete_res = db.execute(delete_query, {"filename": filename})
     deleted_count = delete_res.rowcount
@@ -62,6 +75,7 @@ def revert_ingestion_in_db(db: Session, log_id: int) -> Optional[Tuple[str, int,
     db.execute(update_query, {"log_id": log_id})
     
     # 4. Truncate reconciliation_results to prevent stale ledger entries
+    logger.info("Truncating reconciliation results to clear state after revert.")
     db.execute(text("TRUNCATE TABLE reconciliation_results CASCADE"))
     
     return filename, deleted_count, table_name
@@ -178,7 +192,7 @@ def get_paginated_results_from_db(
         params["from_date"] = from_date
 
     if to_date:
-        base_query_str += " AND transaction_time <= CAST(:to_date AS TIMESTAMP)"
+        base_query_str += " AND transaction_time < CAST(:to_date AS TIMESTAMP) + INTERVAL '1 day'"
         params["to_date"] = to_date
 
     # 1. Count Total Matches

@@ -1,4 +1,4 @@
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, model_validator
 from typing import List, Optional
 from datetime import datetime
 
@@ -58,8 +58,16 @@ class RevertRequestSchema(BaseModel):
 class ManualRefundRequestSchema(BaseModel):
     order_id: Optional[str] = None
     ticket_no: Optional[str] = None
-    amount: Optional[float] = None
-    note: str
+    amount: Optional[float] = Field(None, ge=0.0, description="Amount to refund, must be greater than or equal to 0")
+    note: str = Field(..., min_length=1, max_length=1000, description="Operator note, between 1 and 1000 characters")
+
+    @model_validator(mode="after")
+    def validate_identifiers(self) -> "ManualRefundRequestSchema":
+        ord_clean = (self.order_id or "").strip()
+        tkt_clean = (self.ticket_no or "").strip()
+        if not ord_clean and not tkt_clean:
+            raise ValueError("At least one of order_id or ticket_no must be provided.")
+        return self
 
 class ManualRefundLogSchema(BaseModel):
     id: int

@@ -37,6 +37,7 @@ Thumbs.db
 
 # AI Assistant Context File
 /GEMINI.md
+/audit_report.md
 
 # Production scaling document
 /SCALING_ISSUES_AND_FIXES.md

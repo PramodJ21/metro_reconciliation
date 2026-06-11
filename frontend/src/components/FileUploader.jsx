@@ -1,4 +1,5 @@
 import React, { useState, useRef } from 'react';
+import { API_BASE_URL } from '../config';
 
 const FileUploader = ({ onUploadSuccess, setGlobalLoading, dbStatus, showAlert }) => {
   const [appName, setAppName] = useState('mumbaione');
@@ -85,7 +86,7 @@ const FileUploader = ({ onUploadSuccess, setGlobalLoading, dbStatus, showAlert }
     let errorOccurred = false;
 
     try {
-      const response = await fetch('http://127.0.0.1:8000/api/reconcile/upload', {
+      const response = await fetch(`${API_BASE_URL}/api/reconcile/upload`, {
         method: 'POST',
         body: formData
       });
