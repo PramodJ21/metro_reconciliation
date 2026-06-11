@@ -12,6 +12,7 @@ __pycache__/
 *.pyc
 *.pyo
 *.pyd
+*.pdf
 *.zip
 .pytest_cache/
 venv/
@@ -36,3 +37,7 @@ Thumbs.db
 
 # AI Assistant Context File
 /GEMINI.md
+
+# Production scaling document
+/SCALING_ISSUES_AND_FIXES.md
+

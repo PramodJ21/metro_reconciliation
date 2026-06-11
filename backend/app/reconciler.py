@@ -271,47 +271,57 @@ def run_reconciliation_process() -> List[Dict[str, Any]]:
         
         print("Reconciliation classifying completed.")
 
-    # 5. Calculate summaries
+    # 5. Refresh Materialized View Concurrently for dashboard widgets
+    try:
+        print("Refreshing materialized view concurrently...")
+        with engine.begin() as conn:
+            conn.execute(text("REFRESH MATERIALIZED VIEW CONCURRENTLY mv_reconciliation_summary;"))
+    except Exception as re:
+        print(f"Warning: Failed to refresh materialized view concurrently: {re}")
+        # Fallback to non-concurrent refresh if unique index is not ready
+        try:
+            with engine.begin() as conn:
+                conn.execute(text("REFRESH MATERIALIZED VIEW mv_reconciliation_summary;"))
+        except Exception as re2:
+            print(f"Error: Failed fallback refresh of materialized view: {re2}")
+
+    # 6. Calculate summaries
     return get_reconciliation_summaries()
 
 def get_reconciliation_summaries() -> List[Dict[str, Any]]:
     """
-    Computes summary metrics for each app from reconciliation_results.
+    Fetches the cached summaries from the materialized view mv_reconciliation_summary.
     """
     summaries = []
-    apps = ['MumbaiOne', 'MetroConnect3', 'ONDC']
-    
     with engine.connect() as conn:
-        for app in apps:
-            query = text("""
-                SELECT 
-                    COUNT(*) as total,
-                    COUNT(CASE WHEN recon_status = 'Settled' THEN 1 END) as settled,
-                    COUNT(CASE WHEN recon_status = 'Liable for Refund' THEN 1 END) as liable_for_refund,
-                    COUNT(CASE WHEN recon_status = 'Failed Transaction' THEN 1 END) as failed_transaction,
-                    COUNT(CASE WHEN recon_status IN ('Refunded', 'Manually Refunded') THEN 1 END) as refunded,
-                    COUNT(CASE WHEN recon_status = 'Discrepancy' THEN 1 END) as discrepancy,
-                    COALESCE(SUM(amount), 0) as revenue,
-                    COALESCE(SUM(CASE WHEN recon_status = 'Settled' THEN amount ELSE 0 END), 0) as settled_revenue,
-                    COALESCE(SUM(CASE WHEN data_sources LIKE '%AFC%' THEN amount ELSE 0 END), 0) as afc_revenue,
-                    COALESCE(SUM(CASE WHEN recon_status IN ('Refunded', 'Manually Refunded') THEN amount ELSE 0 END), 0) as refund_amount
-                FROM reconciliation_results
-                WHERE app_source = :app;
-            """)
-            result = conn.execute(query, {"app": app}).mappings().first()
-            
-            if result:
-                summaries.append({
-                    "app_source": app,
-                    "total_records": result["total"],
-                    "settled": result["settled"],
-                    "liable_for_refund": result["liable_for_refund"],
-                    "failed_transaction": result["failed_transaction"],
-                    "refunded": result["refunded"],
-                    "discrepancy": result["discrepancy"],
-                    "revenue": float(result["revenue"] or 0.0),
-                    "settled_revenue": float(result["settled_revenue"] or 0.0),
-                    "afc_revenue": float(result["afc_revenue"] or 0.0),
-                    "refund_amount": float(result["refund_amount"] or 0.0)
-                })
+        query = text("""
+            SELECT 
+                app_source,
+                total_records,
+                settled,
+                liable_for_refund,
+                failed_transaction,
+                refunded,
+                discrepancy,
+                revenue,
+                settled_revenue,
+                afc_revenue,
+                refund_amount
+            FROM mv_reconciliation_summary;
+        """)
+        results = conn.execute(query).mappings().all()
+        for r in results:
+            summaries.append({
+                "app_source": r["app_source"],
+                "total_records": r["total_records"],
+                "settled": r["settled"],
+                "liable_for_refund": r["liable_for_refund"],
+                "failed_transaction": r["failed_transaction"],
+                "refunded": r["refunded"],
+                "discrepancy": r["discrepancy"],
+                "revenue": float(r["revenue"] or 0.0),
+                "settled_revenue": float(r["settled_revenue"] or 0.0),
+                "afc_revenue": float(r["afc_revenue"] or 0.0),
+                "refund_amount": float(r["refund_amount"] or 0.0)
+            })
     return summaries

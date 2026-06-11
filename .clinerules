@@ -1,0 +1,24 @@
+# AI Coding Assistant Rules for Metro Transaction Reconciliation Platform
+
+You are an AI coding assistant working on this codebase. To ensure code consistency, quality, and maintainability, you MUST read and adhere to all specifications, architecture details, and coding standards defined in:
+- GEMINI.md (located in the repository root)
+
+## Key Enforcement Rules:
+
+### 1. Code Readability & Documentation
+- **Python (Backend):** Use explicit type hinting for all function parameters and return types. Write clean docstrings detailing parameters, return values, and behavior.
+- **React/JS (Frontend):** Document custom hooks and complex utility components using JSDoc.
+- **Naming Conventions:** Use clear, descriptive variable and function names. Avoid cryptic abbreviations (e.g., use `reconciliation_result` instead of `recon_res`).
+- **Function Size:** Keep functions small and modular. Any function exceeding 50 lines should be refactored into smaller, focused helper methods.
+
+### 2. DRY (Don't Repeat Yourself) Principles
+- **Shared Utilities:** Centralize reusable logic (such as date parsing, currency formatting, file validation, and log handlers) in dedicated utility modules (`backend/app/utils.py` and `frontend/src/utils/`).
+- **Database Abstraction:** Do not write raw SQL queries or SQLAlchemy direct manipulations inside endpoint route handlers (`main.py`). Centralize database access in utility classes or models (`database.py` / `schemas.py`).
+- **React Hooks:** Abstract data-fetching logic (such as Server-Sent Events or paginated query setups) into reusable custom hooks.
+
+### 3. Architecture & Separation of Concerns
+- **Backend Layers:** Route handlers in `main.py` should only handle HTTP validation, serialization, and calling business logic. Keep handlers "thin" and service modules (like `reconciler.py` or parser layers) "thick".
+- **Database Transactions:** Perform bulk writes, edits, and deletions safely within explicit database transaction blocks (`db.begin()`).
+- **CSS Styles (Frontend):** Enforce strict visual styles in `index.css`. Never use inline styles or inline Tailwind utility classes. Adhere to **sharp corners** (`border-radius: 0px`) and predefined color classes for status pills.
+
+Always read and cross-reference the `GEMINI.md` file before proposing, writing, or editing code.

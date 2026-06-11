@@ -44,7 +44,7 @@ const STATUS_LEGEND = [
     color: '#0369a1',
     bg: '#E0F2FE',
     border: '#0284c7',
-    icon: '👤',
+    icon: 'M',
     title: 'Manually Refunded',
     desc: 'Marked manually as refunded by a system operator along with an audit note reference.',
   },
@@ -126,9 +126,9 @@ const StatusLegendPanel = () => (
           flexShrink: 0,
           width: '22px',
           height: '22px',
-          borderRadius: '50%',
+          borderRadius: '0px',
           background: l.color,
-          color: '#0a0a0a',
+          color: '#ffffff',
           fontWeight: 800,
           fontSize: '0.7rem',
           display: 'flex',
@@ -150,7 +150,7 @@ const StatusLegendPanel = () => (
   </div>
 );
 
-const ResultsBrowser = ({ refreshTrigger }) => {
+const ResultsBrowser = ({ refreshTrigger, showAlert }) => {
   const [results, setResults] = useState([]);
   const [total, setTotal] = useState(0);
   const [page, setPage] = useState(1);
@@ -242,13 +242,13 @@ const ResultsBrowser = ({ refreshTrigger }) => {
         amount: manualRefundTarget.amount || null,
         note: manualRefundNote.trim()
       });
-      alert('✓ Manual refund successfully registered and applied!');
+      showAlert('Manual refund successfully registered and applied!', 'Refund Registered', 'success');
       setManualRefundTarget(null);
       setManualRefundNote('');
       fetchResults();
     } catch (err) {
       console.error(err);
-      alert(`✕ Failed to save manual refund: ${err.response?.data?.detail || err.message}`);
+      showAlert(`Failed to save manual refund: ${err.response?.data?.detail || err.message}`, 'Refund Error', 'error');
     } finally {
       setSubmittingManualRefund(false);
     }
@@ -406,7 +406,7 @@ const ResultsBrowser = ({ refreshTrigger }) => {
         </div>
 
         <div style={{ display: 'flex', gap: '0.5rem', position: 'relative', alignItems: 'center' }}>
-          {/* ⓘ View Legend at page-title level */}
+          {/* View Legend at page-title level */}
           <button
             type="button"
             onClick={() => setShowLegend(true)}
@@ -424,10 +424,11 @@ const ResultsBrowser = ({ refreshTrigger }) => {
               fontWeight: 600,
               transition: 'all 0.15s ease',
             }}
-            onMouseOver={e => e.target.style.background = 'rgba(0,0,0,0.05)'}
-            onMouseOut={e => e.target.style.background = '#FFFFFF'}
+            onMouseOver={e => e.currentTarget.style.background = 'rgba(0,0,0,0.05)'}
+            onMouseOut={e => e.currentTarget.style.background = '#FFFFFF'}
           >
-            ⓘ View Legend
+            <span className="material-symbols-outlined" style={{ fontSize: '16px' }}>info</span>
+            View Legend
           </button>
 
           {/* Filter button at page-title level */}
@@ -449,12 +450,13 @@ const ResultsBrowser = ({ refreshTrigger }) => {
               transition: 'all 0.15s ease',
             }}
           >
-            ⚙ Filter
+            <span className="material-symbols-outlined" style={{ fontSize: '16px' }}>filter_list</span>
+            Filter
             {((appFilter ? 1 : 0) + (statusFilter ? 1 : 0) + (selectedSources.length > 0 ? 1 : 0) + (searchQuery ? 1 : 0) + (fromDate ? 1 : 0) + (toDate ? 1 : 0)) > 0 && (
               <span style={{
                 backgroundColor: '#0f766e',
                 color: '#ffffff',
-                borderRadius: '50%',
+                borderRadius: '0px',
                 width: '18px',
                 height: '18px',
                 fontSize: '0.7rem',
@@ -468,344 +470,547 @@ const ResultsBrowser = ({ refreshTrigger }) => {
               </span>
             )}
           </button>
-
-          {/* Premium Filter Popover modeled 100% on the User's Screenshot */}
-          {showFiltersPanel && (
-            <div className="filter-popover" style={{
-              position: 'absolute',
-              top: 'calc(100% + 8px)',
-              right: 0,
-              width: '320px',
-              maxHeight: '480px',
-              overflowY: 'auto',
-              background: '#FFFFFF',
-              border: '1px solid var(--color-border)',
-              borderRadius: '0px',
-              boxShadow: '0 20px 25px -5px rgba(0, 0, 0, 0.15), 0 10px 10px -5px rgba(0, 0, 0, 0.08)',
-              zIndex: 1000,
-              padding: '1.25rem',
-              textAlign: 'left',
-              display: 'flex',
-              flexDirection: 'column',
-              gap: '1rem',
-              animation: 'fadeInPanel 0.2s ease-out',
-            }}>
-              {/* Header */}
-              <div style={{ fontSize: '0.9rem', fontWeight: 700, color: 'var(--color-primary)', borderBottom: '1px solid var(--color-border)', paddingBottom: '0.65rem' }}>
-                Filter
-              </div>
-
-              {/* Section 1: Data Sources */}
-              <div style={{ display: 'flex', flexDirection: 'column', gap: '0.45rem' }}>
-                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                  <span style={{ fontSize: '0.78rem', fontWeight: 600, color: 'var(--color-primary)' }}>Data sources</span>
-                  <button
-                    type="button"
-                    onClick={() => setPendingSelectedSources([])}
-                    style={{ background: 'none', border: 'none', color: '#0284c7', fontSize: '0.75rem', fontWeight: 600, cursor: 'pointer', padding: 0 }}
-                  >
-                    Reset
-                  </button>
-                </div>
-                <div style={{ display: 'flex', gap: '0.35rem' }}>
-                  {ALL_SOURCES.map(src => {
-                     const active = pendingSelectedSources.includes(src);
-                     const s = SOURCE_STYLES[src];
-                     return (
-                       <button
-                         key={src}
-                         type="button"
-                         onClick={() => {
-                           setPendingSelectedSources(prev => 
-                             prev.includes(src) ? prev.filter(x => x !== src) : [...prev, src]
-                           );
-                         }}
-                         style={{
-                           fontSize: '0.68rem',
-                           fontWeight: 700,
-                           fontFamily: 'monospace',
-                           padding: '0.35rem 0.65rem',
-                           borderRadius: '0px',
-                           border: `1px solid ${active ? s.color : 'var(--color-border)'}`,
-                           background: active ? s.bg : 'var(--color-panel-bg)',
-                           color: active ? s.color : 'var(--text-muted)',
-                           cursor: 'pointer',
-                           letterSpacing: '0.02em',
-                           transition: 'all 0.15s ease',
-                           display: 'inline-flex',
-                           alignItems: 'center',
-                           gap: '0.2rem',
-                         }}
-                       >
-                         <span style={{ fontSize: '0.5rem', opacity: active ? 1 : 0.4 }}>{active ? '●' : '○'}</span>
-                         {src}
-                       </button>
-                     );
-                  })}
-                </div>
-              </div>
-
-              {/* Section 2: App Line */}
-              <div style={{ display: 'flex', flexDirection: 'column', gap: '0.45rem', borderTop: '1px solid var(--color-border)', paddingTop: '0.75rem' }}>
-                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                  <span style={{ fontSize: '0.78rem', fontWeight: 600, color: 'var(--color-primary)' }}>App line</span>
-                  <button
-                    type="button"
-                    onClick={() => setPendingAppFilter('')}
-                    style={{ background: 'none', border: 'none', color: '#0284c7', fontSize: '0.75rem', fontWeight: 600, cursor: 'pointer', padding: 0 }}
-                  >
-                    Reset
-                  </button>
-                </div>
-                <select
-                  className="form-select"
-                  value={pendingAppFilter}
-                  onChange={(e) => setPendingAppFilter(e.target.value)}
-                  style={{ width: '100%', height: '36px', fontSize: '0.8rem', padding: '0.4rem 0.75rem' }}
-                >
-                  <option value="">All App Lines</option>
-                  <option value="MumbaiOne">Mumbai One</option>
-                  <option value="MetroConnect3">Metro Connect</option>
-                  <option value="ONDC">ONDC Hub</option>
-                </select>
-              </div>
-
-              {/* Section 3: Status */}
-              <div style={{ display: 'flex', flexDirection: 'column', gap: '0.45rem', borderTop: '1px solid var(--color-border)', paddingTop: '0.75rem' }}>
-                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                  <span style={{ fontSize: '0.78rem', fontWeight: 600, color: 'var(--color-primary)' }}>Status</span>
-                  <button
-                    type="button"
-                    onClick={() => setPendingStatusFilter('')}
-                    style={{ background: 'none', border: 'none', color: '#0284c7', fontSize: '0.75rem', fontWeight: 600, cursor: 'pointer', padding: 0 }}
-                  >
-                    Reset
-                  </button>
-                </div>
-                <select
-                  className="form-select"
-                  value={pendingStatusFilter}
-                  onChange={(e) => setPendingStatusFilter(e.target.value)}
-                  style={{ width: '100%', height: '36px', fontSize: '0.8rem', padding: '0.4rem 0.75rem' }}
-                >
-                  <option value="">All Statuses</option>
-                  <option value="Settled">Settled</option>
-                  <option value="Failed Transaction">Failed Transaction</option>
-                  <option value="Liable for Refund">Liable for Refund</option>
-                  <option value="Refunded">Refunded</option>
-                  <option value="Manually Refunded">Manually Refunded</option>
-                  <option value="Discrepancy">Discrepancy</option>
-                </select>
-              </div>
-
-              {/* Section 4: Keyword Search */}
-              <div style={{ display: 'flex', flexDirection: 'column', gap: '0.45rem', borderTop: '1px solid var(--color-border)', paddingTop: '0.75rem' }}>
-                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                  <span style={{ fontSize: '0.78rem', fontWeight: 600, color: 'var(--color-primary)' }}>Keyword search</span>
-                  <button
-                    type="button"
-                    onClick={() => setPendingSearchQuery('')}
-                    style={{ background: 'none', border: 'none', color: '#0284c7', fontSize: '0.75rem', fontWeight: 600, cursor: 'pointer', padding: 0 }}
-                  >
-                    Reset
-                  </button>
-                </div>
-                <div style={{ position: 'relative', width: '100%' }}>
-                  <span style={{ position: 'absolute', left: '10px', top: '50%', transform: 'translateY(-50%)', color: 'var(--text-muted)', fontSize: '0.85rem' }}>🔍</span>
-                  <input
-                    type="text"
-                    placeholder="Search..."
-                    value={pendingSearchQuery}
-                    onChange={(e) => setPendingSearchQuery(e.target.value)}
-                    style={{
-                      width: '100%',
-                      height: '36px',
-                      padding: '0 0.75rem 0 2rem',
-                      fontSize: '0.8rem',
-                      backgroundColor: 'var(--color-panel-bg)',
-                      border: '1px solid var(--color-border)',
-                      borderRadius: '0px',
-                      color: 'var(--color-primary)',
-                      outline: 'none',
-                      boxSizing: 'border-box',
-                    }}
-                  />
-                </div>
-              </div>
-
-              {/* Section 5: Date Range */}
-              <div style={{ display: 'flex', flexDirection: 'column', gap: '0.45rem', borderTop: '1px solid var(--color-border)', paddingTop: '0.75rem' }}>
-                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                  <span style={{ fontSize: '0.78rem', fontWeight: 600, color: 'var(--color-primary)' }}>Date range</span>
-                  <button
-                    type="button"
-                    onClick={() => { setPendingFromDate(''); setPendingToDate(''); }}
-                    style={{ background: 'none', border: 'none', color: '#0284c7', fontSize: '0.75rem', fontWeight: 600, cursor: 'pointer', padding: 0 }}
-                  >
-                    Reset
-                  </button>
-                </div>
-                <div style={{ display: 'flex', gap: '0.5rem', alignItems: 'center' }}>
-                  <input
-                    type="date"
-                    value={pendingFromDate}
-                    onChange={(e) => setPendingFromDate(e.target.value)}
-                    style={{
-                      flex: 1,
-                      height: '36px',
-                      padding: '0 0.5rem',
-                      fontSize: '0.8rem',
-                      backgroundColor: 'var(--color-panel-bg)',
-                      border: '1px solid var(--color-border)',
-                      borderRadius: '0px',
-                      color: 'var(--color-primary)',
-                      outline: 'none',
-                      boxSizing: 'border-box',
-                    }}
-                  />
-                  <span style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>to</span>
-                  <input
-                    type="date"
-                    value={pendingToDate}
-                    onChange={(e) => setPendingToDate(e.target.value)}
-                    style={{
-                      flex: 1,
-                      height: '36px',
-                      padding: '0 0.5rem',
-                      fontSize: '0.8rem',
-                      backgroundColor: 'var(--color-panel-bg)',
-                      border: '1px solid var(--color-border)',
-                      borderRadius: '0px',
-                      color: 'var(--color-primary)',
-                      outline: 'none',
-                      boxSizing: 'border-box',
-                    }}
-                  />
-                </div>
-              </div>
-
-              {/* Popover Footer modeled on Screenshot */}
-              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', borderTop: '1px solid var(--color-border)', paddingTop: '0.85rem', marginTop: '0.25rem' }}>
-                <button
-                  type="button"
-                  onClick={() => {
-                    setPendingAppFilter('');
-                    setPendingStatusFilter('');
-                    setPendingSearchQuery('');
-                    setPendingSelectedSources([]);
-                    setPendingFromDate('');
-                    setPendingToDate('');
-                  }}
-                  style={{
-                    background: '#FFFFFF',
-                    border: '1px solid var(--color-border)',
-                    borderRadius: '0px',
-                    color: 'var(--color-primary)',
-                    fontSize: '0.78rem',
-                    fontWeight: 600,
-                    padding: '0.45rem 0.85rem',
-                    cursor: 'pointer',
-                    transition: 'all 0.15s ease',
-                  }}
-                  onMouseOver={(e) => e.target.style.backgroundColor = 'var(--color-neutral)'}
-                  onMouseOut={(e) => e.target.style.backgroundColor = '#FFFFFF'}
-                >
-                  Reset all
-                </button>
-                <button
-                  type="button"
-                  onClick={() => {
-                    setAppFilter(pendingAppFilter);
-                    setStatusFilter(pendingStatusFilter);
-                    setSearchQuery(pendingSearchQuery);
-                    setSelectedSources(pendingSelectedSources);
-                    setFromDate(pendingFromDate);
-                    setToDate(pendingToDate);
-                    setPage(1);
-                    setShowFiltersPanel(false);
-                  }}
-                  style={{
-                    background: '#0f766e',
-                    border: 'none',
-                    borderRadius: '0px',
-                    color: '#FFFFFF',
-                    fontSize: '0.78rem',
-                    fontWeight: 600,
-                    padding: '0.45rem 1rem',
-                    cursor: 'pointer',
-                    transition: 'all 0.15s ease',
-                  }}
-                  onMouseOver={(e) => e.target.style.background = '#0d5c56'}
-                  onMouseOut={(e) => e.target.style.background = '#0f766e'}
-                >
-                  Apply now
-                </button>
-              </div>
-            </div>
-          )}
         </div>
       </div>
 
-      <div className="widget-card">
+      {/* Spacious Inline collapsible filters panel */}
+      {showFiltersPanel && (
+        <div style={{
+          background: '#FFFFFF',
+          border: '1px solid var(--color-border)',
+          padding: '1.5rem',
+          marginBottom: '1.5rem',
+          display: 'flex',
+          flexDirection: 'column',
+          gap: '1.25rem',
+          animation: 'fadeInPanel 0.2s ease-out',
+        }}>
+          {/* Header */}
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', borderBottom: '1px solid var(--color-border)', paddingBottom: '0.65rem' }}>
+            <span style={{ fontSize: '0.85rem', fontWeight: 700, color: 'var(--color-primary)', letterSpacing: '0.05em', textTransform: 'uppercase' }}>
+              Filter Transactions
+            </span>
+            <button
+              type="button"
+              onClick={() => setShowFiltersPanel(false)}
+              style={{
+                background: 'none',
+                border: 'none',
+                color: 'var(--text-muted)',
+                fontSize: '0.78rem',
+                fontWeight: 600,
+                cursor: 'pointer',
+                display: 'flex',
+                alignItems: 'center',
+                gap: '0.2rem'
+              }}
+            >
+              <span className="material-symbols-outlined" style={{ fontSize: '16px' }}>close</span>
+              Hide Filters
+            </button>
+          </div>
 
-      {/* Premium Active Filter Chips (underneath toolbar) */}
-      {((appFilter ? 1 : 0) + (statusFilter ? 1 : 0) + (selectedSources.length > 0 ? 1 : 0) + (searchQuery ? 1 : 0) + (fromDate ? 1 : 0) + (toDate ? 1 : 0)) > 0 && (
-        <div style={{ display: 'flex', gap: '0.4rem', flexWrap: 'wrap', marginTop: '0.5rem', marginBottom: '0.5rem', alignItems: 'center' }}>
-          <span style={{ fontSize: '0.7rem', color: 'var(--text-muted)', fontWeight: 700 }}>ACTIVE FILTERS:</span>
-          {appFilter && (
-            <span style={{ fontSize: '0.72rem', fontWeight: 600, color: '#0f766e', backgroundColor: 'rgba(15, 118, 110, 0.08)', border: '1px solid rgba(15, 118, 110, 0.2)', padding: '0.25rem 0.55rem', borderRadius: '0px', display: 'inline-flex', alignItems: 'center', gap: '0.25rem' }}>
-              App: {appFilter} 
-              <b onClick={() => { setAppFilter(''); setPage(1); }} style={{ cursor: 'pointer', marginLeft: '0.25rem', color: '#ef4444' }}>✕</b>
-            </span>
-          )}
-          {statusFilter && (
-            <span style={{ fontSize: '0.72rem', fontWeight: 600, color: '#0f766e', backgroundColor: 'rgba(15, 118, 110, 0.08)', border: '1px solid rgba(15, 118, 110, 0.2)', padding: '0.25rem 0.55rem', borderRadius: '0px', display: 'inline-flex', alignItems: 'center', gap: '0.25rem' }}>
-              Status: {statusFilter} 
-              <b onClick={() => { setStatusFilter(''); setPage(1); }} style={{ cursor: 'pointer', marginLeft: '0.25rem', color: '#ef4444' }}>✕</b>
-            </span>
-          )}
-          {searchQuery && (
-            <span style={{ fontSize: '0.72rem', fontWeight: 600, color: '#0f766e', backgroundColor: 'rgba(15, 118, 110, 0.08)', border: '1px solid rgba(15, 118, 110, 0.2)', padding: '0.25rem 0.55rem', borderRadius: '0px', display: 'inline-flex', alignItems: 'center', gap: '0.25rem' }}>
-              Search: "{searchQuery}" 
-              <b onClick={() => { setSearchQuery(''); setPage(1); }} style={{ cursor: 'pointer', marginLeft: '0.25rem', color: '#ef4444' }}>✕</b>
-            </span>
-          )}
-          {fromDate && (
-            <span style={{ fontSize: '0.72rem', fontWeight: 600, color: '#0f766e', backgroundColor: 'rgba(15, 118, 110, 0.08)', border: '1px solid rgba(15, 118, 110, 0.2)', padding: '0.25rem 0.55rem', borderRadius: '0px', display: 'inline-flex', alignItems: 'center', gap: '0.25rem' }}>
-              From: {fromDate} 
-              <b onClick={() => { setFromDate(''); setPage(1); }} style={{ cursor: 'pointer', marginLeft: '0.25rem', color: '#ef4444' }}>✕</b>
-            </span>
-          )}
-          {toDate && (
-            <span style={{ fontSize: '0.72rem', fontWeight: 600, color: '#0f766e', backgroundColor: 'rgba(15, 118, 110, 0.08)', border: '1px solid rgba(15, 118, 110, 0.2)', padding: '0.25rem 0.55rem', borderRadius: '0px', display: 'inline-flex', alignItems: 'center', gap: '0.25rem' }}>
-              To: {toDate} 
-              <b onClick={() => { setToDate(''); setPage(1); }} style={{ cursor: 'pointer', marginLeft: '0.25rem', color: '#ef4444' }}>✕</b>
-            </span>
-          )}
-          {selectedSources.length > 0 && (
-            <span style={{ fontSize: '0.72rem', fontWeight: 600, color: '#0f766e', backgroundColor: 'rgba(15, 118, 110, 0.08)', border: '1px solid rgba(15, 118, 110, 0.2)', padding: '0.25rem 0.55rem', borderRadius: '0px', display: 'inline-flex', alignItems: 'center', gap: '0.25rem' }}>
-              Sources: {selectedSources.join(',')} 
-              <b onClick={() => { setSelectedSources([]); setPage(1); }} style={{ cursor: 'pointer', marginLeft: '0.25rem', color: '#ef4444' }}>✕</b>
-            </span>
-          )}
-          <button
-            type="button"
-            onClick={clearAllFilters}
-            style={{
-              background: 'none',
-              border: 'none',
-              color: '#ef4444',
-              fontSize: '0.7rem',
-              fontWeight: 700,
-              cursor: 'pointer',
-              textTransform: 'uppercase',
-              marginLeft: '0.5rem',
-            }}
-          >
-            Reset all
-          </button>
+          {/* Grid Layout of Filter Groups */}
+          <div style={{
+            display: 'grid',
+            gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))',
+            gap: '1.5rem',
+            alignItems: 'start'
+          }}>
+            {/* Group 1: Keyword Search */}
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '0.5rem' }}>
+              <span style={{ fontSize: '0.75rem', fontWeight: 700, color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: '0.04em' }}>Keyword Search</span>
+              <div style={{ position: 'relative', width: '100%' }}>
+                <span className="material-symbols-outlined" style={{ position: 'absolute', left: '10px', top: '50%', transform: 'translateY(-50%)', color: 'var(--text-muted)', fontSize: '18px' }}>search</span>
+                <input
+                  type="text"
+                  placeholder="Search Order ID, Ticket, PG Ref..."
+                  value={pendingSearchQuery}
+                  onChange={(e) => setPendingSearchQuery(e.target.value)}
+                  style={{
+                    width: '100%',
+                    height: '38px',
+                    padding: '0 0.75rem 0 2.2rem',
+                    fontSize: '0.82rem',
+                    backgroundColor: 'var(--color-panel-bg)',
+                    border: '1px solid #c6c6cd',
+                    borderRadius: '0px',
+                    color: 'var(--color-primary)',
+                    outline: 'none',
+                    boxSizing: 'border-box',
+                  }}
+                  onFocus={(e) => e.target.style.borderColor = 'var(--color-secondary)'}
+                  onBlur={(e) => e.target.style.borderColor = '#c6c6cd'}
+                />
+              </div>
+            </div>
+
+            {/* Group 2: Data Sources */}
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '0.5rem' }}>
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                <span style={{ fontSize: '0.75rem', fontWeight: 700, color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: '0.04em' }}>Data Sources</span>
+                <button
+                  type="button"
+                  onClick={() => setPendingSelectedSources([])}
+                  style={{ background: 'none', border: 'none', color: '#0284c7', fontSize: '0.72rem', fontWeight: 600, cursor: 'pointer', padding: 0 }}
+                >
+                  Clear
+                </button>
+              </div>
+              <div style={{ display: 'flex', gap: '0.4rem', flexWrap: 'wrap' }}>
+                {ALL_SOURCES.map(src => {
+                  const active = pendingSelectedSources.includes(src);
+                  const s = SOURCE_STYLES[src];
+                  return (
+                    <button
+                      key={src}
+                      type="button"
+                      onClick={() => {
+                        setPendingSelectedSources(prev => 
+                          prev.includes(src) ? prev.filter(x => x !== src) : [...prev, src]
+                        );
+                      }}
+                      style={{
+                        fontSize: '0.75rem',
+                        fontWeight: 700,
+                        padding: '0.45rem 0.8rem',
+                        borderRadius: '0px',
+                        border: `1px solid ${active ? s.color : '#c6c6cd'}`,
+                        background: active ? s.bg : '#FFFFFF',
+                        color: active ? s.color : 'var(--text-muted)',
+                        cursor: 'pointer',
+                        letterSpacing: '0.02em',
+                        transition: 'all 0.15s ease',
+                        display: 'inline-flex',
+                        alignItems: 'center',
+                        gap: '0.35rem',
+                      }}
+                    >
+                      <input
+                        type="checkbox"
+                        checked={active}
+                        readOnly
+                        style={{
+                          margin: 0,
+                          accentColor: s.color,
+                          cursor: 'pointer',
+                          pointerEvents: 'none'
+                        }}
+                      />
+                      {src}
+                    </button>
+                  );
+                })}
+              </div>
+            </div>
+
+            {/* Group 3: App Line */}
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '0.5rem' }}>
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                <span style={{ fontSize: '0.75rem', fontWeight: 700, color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: '0.04em' }}>App Line</span>
+                <button
+                  type="button"
+                  onClick={() => setPendingAppFilter('')}
+                  style={{ background: 'none', border: 'none', color: '#0284c7', fontSize: '0.72rem', fontWeight: 600, cursor: 'pointer', padding: 0 }}
+                >
+                  Clear
+                </button>
+              </div>
+              <select
+                className="form-select"
+                value={pendingAppFilter}
+                onChange={(e) => setPendingAppFilter(e.target.value)}
+                style={{ width: '100%', height: '38px', fontSize: '0.82rem', padding: '0.4rem 0.75rem', border: '1px solid #c6c6cd', borderRadius: '0px' }}
+              >
+                <option value="">All App Lines</option>
+                <option value="MumbaiOne">Mumbai One</option>
+                <option value="MetroConnect3">Metro Connect</option>
+                <option value="ONDC">ONDC Hub</option>
+              </select>
+            </div>
+
+            {/* Group 4: Status */}
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '0.5rem' }}>
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                <span style={{ fontSize: '0.75rem', fontWeight: 700, color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: '0.04em' }}>Status</span>
+                <button
+                  type="button"
+                  onClick={() => setPendingStatusFilter('')}
+                  style={{ background: 'none', border: 'none', color: '#0284c7', fontSize: '0.72rem', fontWeight: 600, cursor: 'pointer', padding: 0 }}
+                >
+                  Clear
+                </button>
+              </div>
+              <select
+                className="form-select"
+                value={pendingStatusFilter}
+                onChange={(e) => setPendingStatusFilter(e.target.value)}
+                style={{ width: '100%', height: '38px', fontSize: '0.82rem', padding: '0.4rem 0.75rem', border: '1px solid #c6c6cd', borderRadius: '0px' }}
+              >
+                <option value="">All Statuses</option>
+                <option value="Settled">Settled</option>
+                <option value="Failed Transaction">Failed Transaction</option>
+                <option value="Liable for Refund">Liable for Refund</option>
+                <option value="Refunded">Refunded</option>
+                <option value="Manually Refunded">Manually Refunded</option>
+                <option value="Discrepancy">Discrepancy</option>
+              </select>
+            </div>
+
+            {/* Group 5: Date Range */}
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '0.5rem' }}>
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                <span style={{ fontSize: '0.75rem', fontWeight: 700, color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: '0.04em' }}>Date Range</span>
+                <button
+                  type="button"
+                  onClick={() => { setPendingFromDate(''); setPendingToDate(''); }}
+                  style={{ background: 'none', border: 'none', color: '#0284c7', fontSize: '0.72rem', fontWeight: 600, cursor: 'pointer', padding: 0 }}
+                >
+                  Clear
+                </button>
+              </div>
+              <div style={{ display: 'flex', gap: '0.5rem', alignItems: 'center' }}>
+                <input
+                  type="date"
+                  value={pendingFromDate}
+                  onChange={(e) => setPendingFromDate(e.target.value)}
+                  style={{
+                    flex: 1,
+                    height: '38px',
+                    padding: '0 0.5rem',
+                    fontSize: '0.82rem',
+                    backgroundColor: 'var(--color-panel-bg)',
+                    border: '1px solid #c6c6cd',
+                    borderRadius: '0px',
+                    color: 'var(--color-primary)',
+                    outline: 'none',
+                    boxSizing: 'border-box',
+                  }}
+                  onFocus={(e) => e.target.style.borderColor = 'var(--color-secondary)'}
+                  onBlur={(e) => e.target.style.borderColor = '#c6c6cd'}
+                />
+                <span style={{ fontSize: '0.75rem', color: 'var(--text-muted)', fontWeight: 600 }}>to</span>
+                <input
+                  type="date"
+                  value={pendingToDate}
+                  onChange={(e) => setPendingToDate(e.target.value)}
+                  style={{
+                    flex: 1,
+                    height: '38px',
+                    padding: '0 0.5rem',
+                    fontSize: '0.82rem',
+                    backgroundColor: 'var(--color-panel-bg)',
+                    border: '1px solid #c6c6cd',
+                    borderRadius: '0px',
+                    color: 'var(--color-primary)',
+                    outline: 'none',
+                    boxSizing: 'border-box',
+                  }}
+                  onFocus={(e) => e.target.style.borderColor = 'var(--color-secondary)'}
+                  onBlur={(e) => e.target.style.borderColor = '#c6c6cd'}
+                />
+              </div>
+            </div>
+          </div>
+
+          {/* Action buttons footer */}
+          <div style={{
+            display: 'flex',
+            justifyContent: 'flex-end',
+            gap: '0.75rem',
+            borderTop: '1px solid var(--color-border)',
+            paddingTop: '1rem',
+            marginTop: '0.25rem'
+          }}>
+            <button
+              type="button"
+              onClick={() => {
+                setPendingAppFilter('');
+                setPendingStatusFilter('');
+                setPendingSearchQuery('');
+                setPendingSelectedSources([]);
+                setPendingFromDate('');
+                setPendingToDate('');
+              }}
+              style={{
+                background: '#FFFFFF',
+                border: '1px solid #c6c6cd',
+                borderRadius: '0px',
+                color: 'var(--color-primary)',
+                fontSize: '0.8rem',
+                fontWeight: 600,
+                padding: '0.55rem 1.25rem',
+                cursor: 'pointer',
+                transition: 'all 0.15s ease',
+              }}
+              onMouseOver={(e) => e.target.style.backgroundColor = 'var(--color-neutral)'}
+              onMouseOut={(e) => e.target.style.backgroundColor = '#FFFFFF'}
+            >
+              Reset All
+            </button>
+            <button
+              type="button"
+              onClick={() => {
+                setAppFilter(pendingAppFilter);
+                setStatusFilter(pendingStatusFilter);
+                setSearchQuery(pendingSearchQuery);
+                setSelectedSources(pendingSelectedSources);
+                setFromDate(pendingFromDate);
+                setToDate(pendingToDate);
+                setPage(1);
+              }}
+              style={{
+                background: '#0f766e',
+                border: 'none',
+                borderRadius: '0px',
+                color: '#FFFFFF',
+                fontSize: '0.8rem',
+                fontWeight: 600,
+                padding: '0.55rem 1.5rem',
+                cursor: 'pointer',
+                transition: 'all 0.15s ease',
+              }}
+              onMouseOver={(e) => e.target.style.background = '#0d5c56'}
+              onMouseOut={(e) => e.target.style.background = '#0f766e'}
+            >
+              Apply Filters
+            </button>
+          </div>
         </div>
       )}
+
+      <div className="widget-card">
+
+        {/* Premium Active Filter Chips (underneath toolbar) */}
+        {((appFilter ? 1 : 0) + (statusFilter ? 1 : 0) + (selectedSources.length > 0 ? 1 : 0) + (searchQuery ? 1 : 0) + (fromDate ? 1 : 0) + (toDate ? 1 : 0)) > 0 && (
+          <div style={{ display: 'flex', gap: '0.5rem', flexWrap: 'wrap', marginTop: '0.25rem', marginBottom: '1.25rem', alignItems: 'center' }}>
+            <span style={{ fontSize: '0.72rem', color: 'var(--text-muted)', fontWeight: 700, letterSpacing: '0.04em', textTransform: 'uppercase' }}>Active Filters:</span>
+            {appFilter && (
+              <span style={{
+                fontSize: '0.72rem',
+                fontWeight: 600,
+                color: 'var(--text-main)',
+                backgroundColor: '#FFFFFF',
+                border: '1px solid #c6c6cd',
+                padding: '0.3rem 0.6rem',
+                borderRadius: '0px',
+                display: 'inline-flex',
+                alignItems: 'center',
+                gap: '0.4rem',
+                boxShadow: '0 1px 2px rgba(0, 0, 0, 0.02)'
+              }}>
+                <span>App: <b>{appFilter}</b></span>
+                <span 
+                  onClick={() => { setAppFilter(''); setPage(1); }} 
+                  style={{ 
+                    cursor: 'pointer', 
+                    color: 'var(--text-muted)', 
+                    fontWeight: 'bold', 
+                    fontSize: '11px',
+                    display: 'flex',
+                    alignItems: 'center',
+                    padding: '0 2px',
+                    transition: 'color 0.15s ease' 
+                  }}
+                  onMouseOver={e => e.currentTarget.style.color = '#ef4444'}
+                  onMouseOut={e => e.currentTarget.style.color = 'var(--text-muted)'}
+                >
+                  x
+                </span>
+              </span>
+            )}
+            {statusFilter && (
+              <span style={{
+                fontSize: '0.72rem',
+                fontWeight: 600,
+                color: 'var(--text-main)',
+                backgroundColor: '#FFFFFF',
+                border: '1px solid #c6c6cd',
+                padding: '0.3rem 0.6rem',
+                borderRadius: '0px',
+                display: 'inline-flex',
+                alignItems: 'center',
+                gap: '0.4rem',
+                boxShadow: '0 1px 2px rgba(0, 0, 0, 0.02)'
+              }}>
+                <span>Status: <b>{statusFilter}</b></span>
+                <span 
+                  onClick={() => { setStatusFilter(''); setPage(1); }} 
+                  style={{ 
+                    cursor: 'pointer', 
+                    color: 'var(--text-muted)', 
+                    fontWeight: 'bold', 
+                    fontSize: '11px',
+                    display: 'flex',
+                    alignItems: 'center',
+                    padding: '0 2px',
+                    transition: 'color 0.15s ease' 
+                  }}
+                  onMouseOver={e => e.currentTarget.style.color = '#ef4444'}
+                  onMouseOut={e => e.currentTarget.style.color = 'var(--text-muted)'}
+                >
+                  x
+                </span>
+              </span>
+            )}
+            {searchQuery && (
+              <span style={{
+                fontSize: '0.72rem',
+                fontWeight: 600,
+                color: 'var(--text-main)',
+                backgroundColor: '#FFFFFF',
+                border: '1px solid #c6c6cd',
+                padding: '0.3rem 0.6rem',
+                borderRadius: '0px',
+                display: 'inline-flex',
+                alignItems: 'center',
+                gap: '0.4rem',
+                boxShadow: '0 1px 2px rgba(0, 0, 0, 0.02)'
+              }}>
+                <span>Search: <b>"{searchQuery}"</b></span>
+                <span 
+                  onClick={() => { setSearchQuery(''); setPage(1); }} 
+                  style={{ 
+                    cursor: 'pointer', 
+                    color: 'var(--text-muted)', 
+                    fontWeight: 'bold', 
+                    fontSize: '11px',
+                    display: 'flex',
+                    alignItems: 'center',
+                    padding: '0 2px',
+                    transition: 'color 0.15s ease' 
+                  }}
+                  onMouseOver={e => e.currentTarget.style.color = '#ef4444'}
+                  onMouseOut={e => e.currentTarget.style.color = 'var(--text-muted)'}
+                >
+                  x
+                </span>
+              </span>
+            )}
+            {fromDate && (
+              <span style={{
+                fontSize: '0.72rem',
+                fontWeight: 600,
+                color: 'var(--text-main)',
+                backgroundColor: '#FFFFFF',
+                border: '1px solid #c6c6cd',
+                padding: '0.3rem 0.6rem',
+                borderRadius: '0px',
+                display: 'inline-flex',
+                alignItems: 'center',
+                gap: '0.4rem',
+                boxShadow: '0 1px 2px rgba(0, 0, 0, 0.02)'
+              }}>
+                <span>From: <b>{fromDate}</b></span>
+                <span 
+                  onClick={() => { setFromDate(''); setPage(1); }} 
+                  style={{ 
+                    cursor: 'pointer', 
+                    color: 'var(--text-muted)', 
+                    fontWeight: 'bold', 
+                    fontSize: '11px',
+                    display: 'flex',
+                    alignItems: 'center',
+                    padding: '0 2px',
+                    transition: 'color 0.15s ease' 
+                  }}
+                  onMouseOver={e => e.currentTarget.style.color = '#ef4444'}
+                  onMouseOut={e => e.currentTarget.style.color = 'var(--text-muted)'}
+                >
+                  x
+                </span>
+              </span>
+            )}
+            {toDate && (
+              <span style={{
+                fontSize: '0.72rem',
+                fontWeight: 600,
+                color: 'var(--text-main)',
+                backgroundColor: '#FFFFFF',
+                border: '1px solid #c6c6cd',
+                padding: '0.3rem 0.6rem',
+                borderRadius: '0px',
+                display: 'inline-flex',
+                alignItems: 'center',
+                gap: '0.4rem',
+                boxShadow: '0 1px 2px rgba(0, 0, 0, 0.02)'
+              }}>
+                <span>To: <b>{toDate}</b></span>
+                <span 
+                  onClick={() => { setToDate(''); setPage(1); }} 
+                  style={{ 
+                    cursor: 'pointer', 
+                    color: 'var(--text-muted)', 
+                    fontWeight: 'bold', 
+                    fontSize: '11px',
+                    display: 'flex',
+                    alignItems: 'center',
+                    padding: '0 2px',
+                    transition: 'color 0.15s ease' 
+                  }}
+                  onMouseOver={e => e.currentTarget.style.color = '#ef4444'}
+                  onMouseOut={e => e.currentTarget.style.color = 'var(--text-muted)'}
+                >
+                  x
+                </span>
+              </span>
+            )}
+            {selectedSources.length > 0 && (
+              <span style={{
+                fontSize: '0.72rem',
+                fontWeight: 600,
+                color: 'var(--text-main)',
+                backgroundColor: '#FFFFFF',
+                border: '1px solid #c6c6cd',
+                padding: '0.3rem 0.6rem',
+                borderRadius: '0px',
+                display: 'inline-flex',
+                alignItems: 'center',
+                gap: '0.4rem',
+                boxShadow: '0 1px 2px rgba(0, 0, 0, 0.02)'
+              }}>
+                <span>Sources: <b>{selectedSources.join(', ')}</b></span>
+                <span 
+                  onClick={() => { setSelectedSources([]); setPage(1); }} 
+                  style={{ 
+                    cursor: 'pointer', 
+                    color: 'var(--text-muted)', 
+                    fontWeight: 'bold', 
+                    fontSize: '11px',
+                    display: 'flex',
+                    alignItems: 'center',
+                    padding: '0 2px',
+                    transition: 'color 0.15s ease' 
+                  }}
+                  onMouseOver={e => e.currentTarget.style.color = '#ef4444'}
+                  onMouseOut={e => e.currentTarget.style.color = 'var(--text-muted)'}
+                >
+                  x
+                </span>
+              </span>
+            )}
+            <button
+              type="button"
+              onClick={clearAllFilters}
+              style={{
+                background: 'none',
+                border: 'none',
+                color: '#ef4444',
+                fontSize: '0.72rem',
+                fontWeight: 700,
+                cursor: 'pointer',
+                textTransform: 'uppercase',
+                marginLeft: '0.25rem',
+                padding: '0.2rem 0.5rem',
+                transition: 'color 0.15s ease'
+              }}
+              onMouseOver={e => e.currentTarget.style.color = '#b91c1c'}
+              onMouseOut={e => e.currentTarget.style.color = '#ef4444'}
+            >
+              Reset All
+            </button>
+          </div>
+        )}
 
       {/* Table */}
       <div className="table-wrapper">
@@ -921,7 +1126,7 @@ const ResultsBrowser = ({ refreshTrigger }) => {
                             alignItems: 'center',
                             justifyContent: 'center',
                             padding: '0.2rem',
-                            borderRadius: '4px',
+                            borderRadius: '0px',
                             transition: 'background-color 0.15s ease'
                           }}
                           onMouseOver={e => e.currentTarget.style.backgroundColor = row.recon_status === 'Liable for Refund' ? 'rgba(180, 83, 9, 0.08)' : 'rgba(71, 85, 105, 0.08)'}
@@ -1165,7 +1370,7 @@ const ResultsBrowser = ({ refreshTrigger }) => {
                         flexShrink: 0,
                         width: '24px',
                         height: '24px',
-                        borderRadius: '50%',
+                        borderRadius: '0px',
                         background: l.color,
                         color: '#FFFFFF',
                         fontWeight: 800,

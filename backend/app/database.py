@@ -3,13 +3,22 @@ from psycopg2.extras import execute_values
 from sqlalchemy import create_engine, text
 from sqlalchemy.orm import sessionmaker, declarative_base
 from app.config import settings
+from typing import Generator
+from sqlalchemy.orm import Session
+import pandas as pd
 
-# Create standard SQLAlchemy connection elements
-engine = create_engine(settings.DATABASE_URL)
+# Create standard SQLAlchemy connection elements with connection pooling and pre-ping safety
+engine = create_engine(
+    settings.DATABASE_URL,
+    pool_size=20,
+    max_overflow=10,
+    pool_recycle=3600,
+    pool_pre_ping=True
+)
 SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
 Base = declarative_base()
 
-def get_db():
+def get_db() -> Generator[Session, None, None]:
     """Dependency to get database session"""
     db = SessionLocal()
     try:
@@ -17,13 +26,37 @@ def get_db():
     finally:
         db.close()
 
-def execute_ddl():
-    """Executes staging and reconciliation DDL statements to set up tables and indices"""
-    ddl_statements = [
-        # 1. Mobile MumbaiOne Staging
+def execute_ddl() -> None:
+    """Executes staging and reconciliation DDL statements to set up partitioned tables, indices, and materialized views"""
+    # Check if table is already partitioned. If not, drop tables to reconstruct them.
+    is_partitioned = False
+    try:
+        with engine.connect() as conn:
+            res = conn.execute(text("SELECT relkind FROM pg_class WHERE relname = 'reconciliation_results'")).first()
+            if res and res[0] == 'p':
+                is_partitioned = True
+    except Exception:
+        # Table might not exist yet
+        pass
+
+    migration_statements = []
+    if not is_partitioned:
+        print("[MIGRATION] Dropping old regular tables to recreate partitioned tables...")
+        migration_statements = [
+            "DROP TABLE IF EXISTS stg_mobile_mumbaione CASCADE;",
+            "DROP TABLE IF EXISTS stg_mobile_metroconnect3 CASCADE;",
+            "DROP TABLE IF EXISTS stg_mobile_ondc CASCADE;",
+            "DROP TABLE IF EXISTS stg_pg_transactions CASCADE;",
+            "DROP TABLE IF EXISTS stg_afc_transactions CASCADE;",
+            "DROP TABLE IF EXISTS reconciliation_results CASCADE;",
+            "DROP MATERIALIZED VIEW IF EXISTS mv_reconciliation_summary CASCADE;"
+        ]
+
+    ddl_statements = migration_statements + [
+        # 1. Mobile MumbaiOne Staging (Partitioned by transaction_date_time)
         """
         CREATE TABLE IF NOT EXISTS stg_mobile_mumbaione (
-            id SERIAL PRIMARY KEY,
+            id SERIAL,
             ticket_number VARCHAR,
             pg_reference_no VARCHAR,
             mumbai_one_id VARCHAR,
@@ -37,24 +70,37 @@ def execute_ddl():
             payment_amount NUMERIC,
             ticket_type VARCHAR,
             transaction_id VARCHAR,
-            transaction_date_time VARCHAR,
+            transaction_date_time TIMESTAMP NOT NULL,
             user_email_id VARCHAR,
             user_mobile_no VARCHAR,
             app_environment VARCHAR,
             payment_status VARCHAR,
             ticket_status VARCHAR,
-            file_source VARCHAR
-        );
+            file_source VARCHAR,
+            PRIMARY KEY (id, transaction_date_time)
+        ) PARTITION BY RANGE (transaction_date_time);
+        """,
+        # Active months partitions (Defined as UNLOGGED for insertion speedup)
+        """
+        CREATE UNLOGGED TABLE IF NOT EXISTS stg_mobile_mumbaione_y2026m04 PARTITION OF stg_mobile_mumbaione
+            FOR VALUES FROM ('2026-04-01 00:00:00') TO ('2026-05-01 00:00:00');
+        """,
+        """
+        CREATE UNLOGGED TABLE IF NOT EXISTS stg_mobile_mumbaione_y2026m05 PARTITION OF stg_mobile_mumbaione
+            FOR VALUES FROM ('2026-05-01 00:00:00') TO ('2026-06-01 00:00:00');
+        """,
+        # Default partition to catch out of bounds dates gracefully
+        """
+        CREATE UNLOGGED TABLE IF NOT EXISTS stg_mobile_mumbaione_default PARTITION OF stg_mobile_mumbaione DEFAULT;
         """,
         "CREATE INDEX IF NOT EXISTS idx_stg_mob_m1_tkt_no ON stg_mobile_mumbaione(ticket_number);",
         "CREATE INDEX IF NOT EXISTS idx_stg_mob_m1_pg_ref ON stg_mobile_mumbaione(pg_reference_no);",
-        "CREATE INDEX IF NOT EXISTS idx_stg_mob_m1_ord_id ON stg_mobile_mumbaione(mumbai_one_id);",
         "CREATE INDEX IF NOT EXISTS idx_stg_mob_m1_filesrc ON stg_mobile_mumbaione(file_source);",
         
-        # 2. Mobile MetroConnect3 Staging
+        # 2. Mobile MetroConnect3 Staging (Partitioned by created_at)
         """
         CREATE TABLE IF NOT EXISTS stg_mobile_metroconnect3 (
-            id SERIAL PRIMARY KEY,
+            id SERIAL,
             ticket_no VARCHAR,
             journey_id INTEGER,
             booking_type VARCHAR,
@@ -64,24 +110,38 @@ def execute_ddl():
             total_distance NUMERIC,
             total_time NUMERIC,
             total_stations VARCHAR,
-            booking_time VARCHAR,
-            valid_till VARCHAR,
+            booking_time TIMESTAMP,
+            valid_till TIMESTAMP,
             requested_from VARCHAR,
             trip_pass_id VARCHAR,
-            created_at VARCHAR,
-            updated_at VARCHAR,
-            file_source VARCHAR
-        );
+            created_at TIMESTAMP NOT NULL,
+            updated_at TIMESTAMP,
+            file_source VARCHAR,
+            PRIMARY KEY (id, created_at)
+        ) PARTITION BY RANGE (created_at);
+        """,
+        # Active months partitions (UNLOGGED)
+        """
+        CREATE UNLOGGED TABLE IF NOT EXISTS stg_mobile_metroconnect3_y2026m04 PARTITION OF stg_mobile_metroconnect3
+            FOR VALUES FROM ('2026-04-01 00:00:00') TO ('2026-05-01 00:00:00');
+        """,
+        """
+        CREATE UNLOGGED TABLE IF NOT EXISTS stg_mobile_metroconnect3_y2026m05 PARTITION OF stg_mobile_metroconnect3
+            FOR VALUES FROM ('2026-05-01 00:00:00') TO ('2026-06-01 00:00:00');
+        """,
+        # Default partition
+        """
+        CREATE UNLOGGED TABLE IF NOT EXISTS stg_mobile_metroconnect3_default PARTITION OF stg_mobile_metroconnect3 DEFAULT;
         """,
         "CREATE INDEX IF NOT EXISTS idx_stg_mob_mc3_tno ON stg_mobile_metroconnect3(ticket_no);",
         "CREATE INDEX IF NOT EXISTS idx_stg_mob_mc3_filesrc ON stg_mobile_metroconnect3(file_source);",
 
-        # 3. Mobile ONDC Staging
+        # 3. Mobile ONDC Staging (Partitioned by date)
         """
         CREATE TABLE IF NOT EXISTS stg_mobile_ondc (
-            id SERIAL PRIMARY KEY,
+            id SERIAL,
             order_id VARCHAR,
-            date VARCHAR,
+            date TIMESTAMP NOT NULL,
             transaction_id VARCHAR,
             buyer VARCHAR,
             number_of_tickets INTEGER,
@@ -90,16 +150,30 @@ def execute_ddl():
             start_station VARCHAR,
             end_station VARCHAR,
             refund_amount NUMERIC,
-            file_source VARCHAR
-        );
+            file_source VARCHAR,
+            PRIMARY KEY (id, date)
+        ) PARTITION BY RANGE (date);
+        """,
+        # Active months partitions (UNLOGGED)
+        """
+        CREATE UNLOGGED TABLE IF NOT EXISTS stg_mobile_ondc_y2026m04 PARTITION OF stg_mobile_ondc
+            FOR VALUES FROM ('2026-04-01 00:00:00') TO ('2026-05-01 00:00:00');
+        """,
+        """
+        CREATE UNLOGGED TABLE IF NOT EXISTS stg_mobile_ondc_y2026m05 PARTITION OF stg_mobile_ondc
+            FOR VALUES FROM ('2026-05-01 00:00:00') TO ('2026-06-01 00:00:00');
+        """,
+        # Default partition
+        """
+        CREATE UNLOGGED TABLE IF NOT EXISTS stg_mobile_ondc_default PARTITION OF stg_mobile_ondc DEFAULT;
         """,
         "CREATE INDEX IF NOT EXISTS idx_stg_mob_ondc_ord ON stg_mobile_ondc(order_id);",
         "CREATE INDEX IF NOT EXISTS idx_stg_mob_ondc_filesrc ON stg_mobile_ondc(file_source);",
 
-        # 4. Payment Gateway Staging
+        # 4. Payment Gateway Staging (Partitioned by date_of_txn)
         """
         CREATE TABLE IF NOT EXISTS stg_pg_transactions (
-            id SERIAL PRIMARY KEY,
+            id SERIAL,
             biller_id VARCHAR,
             bank_id VARCHAR,
             bank_ref_no VARCHAR,
@@ -113,32 +187,46 @@ def execute_ddl():
             ref_7 VARCHAR,
             ref_8 VARCHAR,
             filler VARCHAR,
-            date_of_txn VARCHAR,
-            settlement_date VARCHAR,
+            date_of_txn TIMESTAMP NOT NULL,
+            settlement_date TIMESTAMP,
             gross_amount NUMERIC,
             charges NUMERIC,
             gst NUMERIC,
             net_amount NUMERIC,
             refund_id VARCHAR,
-            refund_date VARCHAR,
+            refund_date TIMESTAMP,
             refund_amount NUMERIC,
             sub_txn_id VARCHAR,
             transaction_type VARCHAR, -- 'SETTLED' or 'REFUND'
             app_source VARCHAR,         -- 'MetroConnect3' or 'MumbaiOne'
-            file_source VARCHAR
-        );
+            file_source VARCHAR,
+            PRIMARY KEY (id, date_of_txn)
+        ) PARTITION BY RANGE (date_of_txn);
+        """,
+        # Active months partitions (UNLOGGED)
+        """
+        CREATE UNLOGGED TABLE IF NOT EXISTS stg_pg_transactions_y2026m04 PARTITION OF stg_pg_transactions
+            FOR VALUES FROM ('2026-04-01 00:00:00') TO ('2026-05-01 00:00:00');
+        """,
+        """
+        CREATE UNLOGGED TABLE IF NOT EXISTS stg_pg_transactions_y2026m05 PARTITION OF stg_pg_transactions
+            FOR VALUES FROM ('2026-05-01 00:00:00') TO ('2026-06-01 00:00:00');
+        """,
+        # Default partition
+        """
+        CREATE UNLOGGED TABLE IF NOT EXISTS stg_pg_transactions_default PARTITION OF stg_pg_transactions DEFAULT;
         """,
         "CREATE INDEX IF NOT EXISTS idx_stg_pg_pgi_ref ON stg_pg_transactions(pgi_ref_no);",
         "CREATE INDEX IF NOT EXISTS idx_stg_pg_ref_1 ON stg_pg_transactions(ref_1);",
         "CREATE INDEX IF NOT EXISTS idx_stg_pg_type_src ON stg_pg_transactions(transaction_type, app_source);",
         "CREATE INDEX IF NOT EXISTS idx_stg_pg_filesrc ON stg_pg_transactions(file_source);",
 
-        # 5. AFC Staging
+        # 5. AFC Staging (Partitioned by date)
         """
         CREATE TABLE IF NOT EXISTS stg_afc_transactions (
-            id SERIAL PRIMARY KEY,
+            id SERIAL,
             s_no INTEGER,
-            date VARCHAR,
+            date TIMESTAMP NOT NULL,
             pass_name VARCHAR,
             operator_name VARCHAR,
             order_id VARCHAR,
@@ -148,8 +236,22 @@ def execute_ddl():
             slave_qr_no VARCHAR,
             units INTEGER,
             total_price NUMERIC,
-            file_source VARCHAR
-        );
+            file_source VARCHAR,
+            PRIMARY KEY (id, date)
+        ) PARTITION BY RANGE (date);
+        """,
+        # Active months partitions (UNLOGGED)
+        """
+        CREATE UNLOGGED TABLE IF NOT EXISTS stg_afc_transactions_y2026m04 PARTITION OF stg_afc_transactions
+            FOR VALUES FROM ('2026-04-01 00:00:00') TO ('2026-05-01 00:00:00');
+        """,
+        """
+        CREATE UNLOGGED TABLE IF NOT EXISTS stg_afc_transactions_y2026m05 PARTITION OF stg_afc_transactions
+            FOR VALUES FROM ('2026-05-01 00:00:00') TO ('2026-06-01 00:00:00');
+        """,
+        # Default partition
+        """
+        CREATE UNLOGGED TABLE IF NOT EXISTS stg_afc_transactions_default PARTITION OF stg_afc_transactions DEFAULT;
         """,
         "CREATE INDEX IF NOT EXISTS idx_stg_afc_sqr ON stg_afc_transactions(slave_qr_no);",
         "CREATE INDEX IF NOT EXISTS idx_stg_afc_ord ON stg_afc_transactions(order_id);",
@@ -172,27 +274,40 @@ def execute_ddl():
         """,
         "CREATE INDEX IF NOT EXISTS idx_ing_logs_status ON ingestion_logs(status);",
 
-        # 7. Reconciliation Results Table
+        # 7. Reconciliation Results Table (Partitioned by transaction_time)
         """
         CREATE TABLE IF NOT EXISTS reconciliation_results (
-            id SERIAL PRIMARY KEY,
+            id SERIAL,
             app_source VARCHAR,
             order_id VARCHAR,
             ticket_no VARCHAR,
             pg_ref_no VARCHAR,
             amount NUMERIC,
-            transaction_time VARCHAR,
+            transaction_time TIMESTAMP NOT NULL,
             recon_status VARCHAR,
             notes VARCHAR,
             data_sources VARCHAR,
-            reconciled_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-        );
+            reconciled_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+            PRIMARY KEY (id, transaction_time)
+        ) PARTITION BY RANGE (transaction_time);
+        """,
+        # Active months partitions
+        """
+        CREATE TABLE IF NOT EXISTS reconciliation_results_y2026m04 PARTITION OF reconciliation_results
+            FOR VALUES FROM ('2026-04-01 00:00:00') TO ('2026-05-01 00:00:00');
+        """,
+        """
+        CREATE TABLE IF NOT EXISTS reconciliation_results_y2026m05 PARTITION OF reconciliation_results
+            FOR VALUES FROM ('2026-05-01 00:00:00') TO ('2026-06-01 00:00:00');
+        """,
+        # Default partition
+        """
+        CREATE TABLE IF NOT EXISTS reconciliation_results_default PARTITION OF reconciliation_results DEFAULT;
         """,
         "CREATE INDEX IF NOT EXISTS idx_recon_res_status ON reconciliation_results(recon_status);",
         "CREATE INDEX IF NOT EXISTS idx_recon_res_app ON reconciliation_results(app_source);",
         "CREATE INDEX IF NOT EXISTS idx_recon_res_ord_tkt ON reconciliation_results(order_id, ticket_no);",
-        # Migration: add data_sources column to existing DBs
-        "ALTER TABLE reconciliation_results ADD COLUMN IF NOT EXISTS data_sources VARCHAR;",
+
         # 8. Manual Refunds Table (Audit Log of Tag Updates)
         """
         CREATE TABLE IF NOT EXISTS manual_refunds (
@@ -207,12 +322,27 @@ def execute_ddl():
         );
         """,
         "CREATE INDEX IF NOT EXISTS idx_man_ref_ord_tkt ON manual_refunds(order_id, ticket_no);",
-        # Convert all staging tables to UNLOGGED for massive insertion speedup (WAL bypass)
-        "ALTER TABLE stg_mobile_mumbaione SET UNLOGGED;",
-        "ALTER TABLE stg_mobile_metroconnect3 SET UNLOGGED;",
-        "ALTER TABLE stg_mobile_ondc SET UNLOGGED;",
-        "ALTER TABLE stg_pg_transactions SET UNLOGGED;",
-        "ALTER TABLE stg_afc_transactions SET UNLOGGED;"
+
+        # 9. Materialized View for Dashboard Summaries
+        """
+        CREATE MATERIALIZED VIEW IF NOT EXISTS mv_reconciliation_summary AS
+        SELECT 
+            app_source,
+            COUNT(*) as total_records,
+            COUNT(CASE WHEN recon_status = 'Settled' THEN 1 END) as settled,
+            COUNT(CASE WHEN recon_status = 'Liable for Refund' THEN 1 END) as liable_for_refund,
+            COUNT(CASE WHEN recon_status = 'Failed Transaction' THEN 1 END) as failed_transaction,
+            COUNT(CASE WHEN recon_status IN ('Refunded', 'Manually Refunded') THEN 1 END) as refunded,
+            COUNT(CASE WHEN recon_status = 'Discrepancy' THEN 1 END) as discrepancy,
+            COALESCE(SUM(amount), 0) as revenue,
+            COALESCE(SUM(CASE WHEN recon_status = 'Settled' THEN amount ELSE 0 END), 0) as settled_revenue,
+            COALESCE(SUM(CASE WHEN data_sources LIKE '%AFC%' THEN amount ELSE 0 END), 0) as afc_revenue,
+            COALESCE(SUM(CASE WHEN recon_status IN ('Refunded', 'Manually Refunded') THEN amount ELSE 0 END), 0) as refund_amount
+        FROM reconciliation_results
+        GROUP BY app_source;
+        """,
+        # Unique index on app_source (required for REFRESH CONCURRENTLY)
+        "CREATE UNIQUE INDEX IF NOT EXISTS idx_mv_recon_sum_app ON mv_reconciliation_summary (app_source);"
     ]
 
     with engine.begin() as connection:
@@ -221,14 +351,10 @@ def execute_ddl():
             connection.execute(text(stmt))
         print("All tables and indices verified successfully.")
 
-def bulk_insert_df(table_name: str, df, truncate: bool = False):
+def bulk_insert_df(table_name: str, df: pd.DataFrame, truncate: bool = False) -> int:
     """
     Ultra-Performance concurrency-safe bulk insert of a pandas DataFrame into a specified table.
-    Bypasses standard insert overhead:
-    1. Bypasses WAL overhead using PostgreSQL UNLOGGED tables defined in DDL.
-    2. Streams raw TSV directly into PostgreSQL using copy_expert (zero SQL planning).
-    3. Keeps staging indexes active to prevent AccessExclusiveLock starvations/deadlocks,
-       maintaining 100% database concurrency read/write compatibility.
+    Bypasses standard insert overhead using COPY STDIN.
     """
     import io
     import csv
@@ -238,7 +364,7 @@ def bulk_insert_df(table_name: str, df, truncate: bool = False):
 
     columns = list(df.columns)
     
-    # 1. Fast TSV serialization in Pandas (minimal string escaping overhead, writes NaNs as \N)
+    # 1. Fast TSV serialization in Pandas
     buffer = io.StringIO()
     df.to_csv(buffer, sep='\t', index=False, header=False, na_rep='\\N', quoting=csv.QUOTE_MINIMAL)
     buffer.seek(0)

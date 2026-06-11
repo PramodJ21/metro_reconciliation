@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import axios from 'axios';
 
-const IngestionLogger = ({ ingestionLogs = [], onRevertSuccess, setGlobalLoading }) => {
+const IngestionLogger = ({ ingestionLogs = [], onRevertSuccess, setGlobalLoading, showAlert }) => {
   const [revertingId, setRevertingId] = useState(null);
   const [activeTab, setActiveTab] = useState('staged'); // 'staged' | 'reverted'
   const [startDate, setStartDate] = useState('');
@@ -132,7 +132,7 @@ const IngestionLogger = ({ ingestionLogs = [], onRevertSuccess, setGlobalLoading
         }, 800);
       }
       
-      alert(response.data.message || "File reverted successfully!");
+      showAlert(response.data.message || "File reverted successfully!", "Revert Success", "success");
       if (onRevertSuccess) onRevertSuccess();
     } catch (err) {
       clearInterval(progressInterval);
@@ -150,7 +150,7 @@ const IngestionLogger = ({ ingestionLogs = [], onRevertSuccess, setGlobalLoading
         }, 1500);
       }
       
-      alert(`Error reverting file: ${errMsg}`);
+      showAlert(`Error reverting file: ${errMsg}`, "Revert Error", "error");
     } finally {
       setRevertingId(null);
     }

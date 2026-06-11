@@ -1,6 +1,6 @@
 import React, { useState, useRef } from 'react';
 
-const FileUploader = ({ onUploadSuccess, setGlobalLoading, dbStatus }) => {
+const FileUploader = ({ onUploadSuccess, setGlobalLoading, dbStatus, showAlert }) => {
   const [appName, setAppName] = useState('mumbaione');
   const [channel, setChannel] = useState('mobile');
   const [clearExisting, setClearExisting] = useState(false);
@@ -82,6 +82,7 @@ const FileUploader = ({ onUploadSuccess, setGlobalLoading, dbStatus }) => {
     selectedFiles.forEach((file) => formData.append('files', file));
 
     let completed = false;
+    let errorOccurred = false;
 
     try {
       const response = await fetch('http://127.0.0.1:8000/api/reconcile/upload', {
@@ -165,6 +166,7 @@ const FileUploader = ({ onUploadSuccess, setGlobalLoading, dbStatus }) => {
             if (onUploadSuccess) onUploadSuccess();
 
           } else if (event === 'error') {
+            errorOccurred = true;
             const errMsg = evt.message || 'Unknown ingestion error';
             setUploadLogs(prev => [...prev, `✕ Error: ${errMsg}`]);
             setUploadProgress(0);
@@ -181,15 +183,15 @@ const FileUploader = ({ onUploadSuccess, setGlobalLoading, dbStatus }) => {
             }
 
             if (errMsg.includes('Wrong file structure')) {
-              alert(`✕ WRONG FILE STRUCTURE DETECTED\n\n${errMsg.replace('Wrong file structure: ', '')}\n\nPlease check your spreadsheet columns and try again.`);
+              showAlert(errMsg.replace('Wrong file structure: ', '') + '\n\nPlease check your spreadsheet columns and try again.', 'Wrong File Structure', 'error');
             } else {
-              alert(`✕ INGESTION FAILURE\n\n${errMsg}`);
+              showAlert(errMsg, 'Ingestion Failure', 'error');
             }
           }
         }
       }
 
-      if (!completed) {
+      if (!completed && !errorOccurred) {
         // Stream ended without a completed event — treat as unexpected
         throw new Error('Server closed the stream without a completion signal.');
       }
@@ -211,7 +213,7 @@ const FileUploader = ({ onUploadSuccess, setGlobalLoading, dbStatus }) => {
         }, 2000);
       }
 
-      alert(`✕ INGESTION FAILURE\n\n${errMsg}`);
+      showAlert(errMsg, 'Ingestion Failure', 'error');
     } finally {
       setUploading(false);
     }
@@ -331,24 +333,51 @@ const FileUploader = ({ onUploadSuccess, setGlobalLoading, dbStatus }) => {
 
         {/* Selected Files List with Inline Scrolling */}
         {selectedFiles.length > 0 && (
-          <div 
-            className="file-staging-list" 
-            style={{ 
-              marginBottom: '1.5rem',
-              maxHeight: '180px',
-              overflowY: 'auto',
-              border: '1px solid var(--color-border)',
-              padding: '0.5rem',
-              backgroundColor: 'rgba(0, 0, 0, 0.02)',
-              gap: '0.4rem'
-            }}
-          >
-            {selectedFiles.map((file, idx) => (
-              <div key={idx} className="file-staging-item" style={{ margin: 0 }}>
-                <span>⚬ {file.name} ({(file.size / 1024).toFixed(1)} KB)</span>
-                <span className="file-staging-remove" onClick={() => removeFile(idx)}>✕</span>
-              </div>
-            ))}
+          <div style={{ display: 'flex', flexDirection: 'column', gap: '0.5rem', marginBottom: '1.5rem' }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+              <span style={{ fontSize: '0.75rem', fontWeight: 700, color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: '0.04em' }}>
+                Staged Files ({selectedFiles.length})
+              </span>
+              <button
+                type="button"
+                onClick={() => setSelectedFiles([])}
+                style={{
+                  background: 'none',
+                  border: 'none',
+                  color: '#991B1B',
+                  fontSize: '0.75rem',
+                  fontWeight: 600,
+                  cursor: 'pointer',
+                  padding: 0,
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: '0.25rem',
+                  textTransform: 'uppercase',
+                  letterSpacing: '0.04em'
+                }}
+              >
+                <span className="material-symbols-outlined" style={{ fontSize: '14px' }}>delete_sweep</span>
+                Remove All Files
+              </button>
+            </div>
+            <div 
+              className="file-staging-list" 
+              style={{ 
+                maxHeight: '180px',
+                overflowY: 'auto',
+                border: '1px solid var(--color-border)',
+                padding: '0.5rem',
+                backgroundColor: 'rgba(0, 0, 0, 0.02)',
+                gap: '0.4rem'
+              }}
+            >
+              {selectedFiles.map((file, idx) => (
+                <div key={idx} className="file-staging-item" style={{ margin: 0 }}>
+                  <span>⚬ {file.name} ({(file.size / 1024).toFixed(1)} KB)</span>
+                  <span className="file-staging-remove" onClick={() => removeFile(idx)}>✕</span>
+                </div>
+              ))}
+            </div>
           </div>
         )}
 

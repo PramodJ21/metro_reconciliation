@@ -55,7 +55,7 @@ const Dashboard = ({ dbStatus, summaries = [] }) => {
     }
     return new Intl.NumberFormat('en-IN', { style: 'currency', currency: 'INR', maximumFractionDigits: 0 }).format(val || 0);
   };
-
+ 
 
   const getAppLineStyle = (appName) => {
     const name = appName ? appName.toLowerCase() : '';

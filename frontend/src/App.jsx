@@ -4,9 +4,19 @@ import Dashboard from './components/Dashboard';
 import FileUploader from './components/FileUploader';
 import ResultsBrowser from './components/ResultsBrowser';
 import IngestionLogger from './components/IngestionLogger';
+import ErrorDisplay from './components/ErrorDisplay';
 
 function App() {
   const [dbStatus, setDbStatus] = useState(null);
+  const [alertConfig, setAlertConfig] = useState({ show: false, title: '', message: '', type: 'error' });
+
+  const showAlert = (message, title = 'Notification', type = 'error') => {
+    setAlertConfig({ show: true, title, message, type });
+  };
+
+  const closeAlert = () => {
+    setAlertConfig(prev => ({ ...prev, show: false }));
+  };
   const [summaries, setSummaries] = useState([]);
   const [resultsRefreshTrigger, setResultsRefreshTrigger] = useState(0);
   const [ingestionLogs, setIngestionLogs] = useState([]);
@@ -172,7 +182,7 @@ function App() {
       
       const results = response.data?.results || [];
       if (results.length === 0) {
-        alert("The ledger is currently empty. There is no data to export.");
+        showAlert("The ledger is currently empty. There is no data to export.", "Empty Ledger", "warning");
         setGlobalLoading({ active: false, title: '', progress: 0, message: '' });
         return;
       }
@@ -210,7 +220,7 @@ function App() {
       setTimeout(() => setGlobalLoading({ active: false, title: '', progress: 0, message: '' }), 800);
     } catch (err) {
       console.error(err);
-      alert("Failed to export ledger data: " + err.message);
+      showAlert("Failed to export ledger data: " + err.message, "Export Error", "error");
       setGlobalLoading({ active: false, title: '', progress: 0, message: '' });
     }
   };
@@ -580,7 +590,7 @@ function App() {
               </div>
 
               {/* Staging & Metrics Row */}
-              <Dashboard dbStatus={dbStatus} summaries={summaries} />
+              <Dashboard dbStatus={dbStatus} summaries={summaries} showAlert={showAlert} />
             </>
           )}
 
@@ -595,7 +605,7 @@ function App() {
               </div>
 
               {/* Ingestion Panel */}
-              <FileUploader onUploadSuccess={handleUploadSuccess} setGlobalLoading={setGlobalLoading} dbStatus={dbStatus} />
+              <FileUploader onUploadSuccess={handleUploadSuccess} setGlobalLoading={setGlobalLoading} dbStatus={dbStatus} showAlert={showAlert} />
             </>
           )}
 
@@ -609,14 +619,14 @@ function App() {
                 </p>
               </div>
 
-              <IngestionLogger ingestionLogs={ingestionLogs} onRevertSuccess={handleUploadSuccess} setGlobalLoading={setGlobalLoading} />
+              <IngestionLogger ingestionLogs={ingestionLogs} onRevertSuccess={handleUploadSuccess} setGlobalLoading={setGlobalLoading} showAlert={showAlert} />
             </>
           )}
 
           {activePage === 'ledger' && (
             /* PAGE 4: LEDGER (Results Table grid browser) */
             <>
-              <ResultsBrowser refreshTrigger={resultsRefreshTrigger} />
+              <ResultsBrowser refreshTrigger={resultsRefreshTrigger} showAlert={showAlert} />
             </>
           )}
         </main>
@@ -646,6 +656,15 @@ function App() {
           </div>
         </div>
       )}
+
+      {/* Shared Custom Dialog Modal */}
+      <ErrorDisplay
+        show={alertConfig.show}
+        title={alertConfig.title}
+        message={alertConfig.message}
+        type={alertConfig.type}
+        onClose={closeAlert}
+      />
     </>
   );
 }

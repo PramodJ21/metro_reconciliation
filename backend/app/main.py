@@ -21,14 +21,10 @@ from app.schemas import (
     ManualRefundRequestSchema,
     ManualRefundLogSchema
 )
-from app.parser import (
-    parse_mobile_mumbaione,
-    parse_mobile_metroconnect3,
-    parse_mobile_ondc,
-    parse_afc,
-    parse_payment_gateway
-)
 from app.reconciler import run_reconciliation_process, get_reconciliation_summaries
+from app.utils import deduplicate_dataframe
+from app.tasks import parse_ingested_file
+from app import repository
 
 app = FastAPI(
     title=settings.PROJECT_NAME,
@@ -45,7 +41,7 @@ app.add_middleware(
 )
 
 @app.on_event("startup")
-def startup_event():
+def startup_event() -> None:
     """Run database DDL statements on startup to guarantee tables exist"""
     try:
         execute_ddl()
@@ -53,7 +49,7 @@ def startup_event():
         print(f"Error executing database DDL on startup: {e}")
 
 @app.get("/")
-def read_root():
+def read_root() -> dict:
     return {
         "project": settings.PROJECT_NAME,
         "status": "Running",
@@ -67,31 +63,23 @@ async def upload_files(
     clear_existing: bool = Form(False, description="Clear existing data in the target staging table first"),
     files: List[UploadFile] = File(..., description="Excel/CSV files to upload"),
     db: Session = Depends(get_db)
-):
+) -> StreamingResponse:
     """
     Accepts multiple file uploads for a specific App and Channel,
-    parses them, and bulk inserts them into PostgreSQL.
+    parses them concurrently in secondary processes, and bulk inserts them into PostgreSQL.
     Streams real-time progress back to the client using Server-Sent Events (SSE).
-
-    Performance optimisations applied:
-    - Files are read into BytesIO in memory — zero disk I/O during parsing.
-    - Deduplication uses vectorised pandas string ops instead of row-level .apply().
-    - A single bulk execute_values insert covers all files in one DB round-trip.
     """
 
     def _sse(event_type: str, payload: dict) -> str:
         payload["event"] = event_type
         return f"data: {json.dumps(payload)}\n\n"
 
-    # Read all file bytes into memory before the generator runs.
-    # UploadFile.file is a one-shot stream; buffering here means the
-    # generator can seek/re-read freely without touching disk.
-    file_payloads = []  # list of (filename, BytesIO)
+    # Read raw file bytes into memory to be pickle-safe for ProcessPoolExecutor
+    file_payloads = []
     for uf in files:
-        file_payloads.append((uf.filename, io.BytesIO(uf.file.read())))
+        file_payloads.append((uf.filename, uf.file.read()))
 
     def event_generator():
-        # --- 1. Input Validation ---
         _app = app_name.strip().lower()
         _ch  = channel.strip().lower()
 
@@ -108,7 +96,6 @@ async def upload_files(
             yield _sse("error", {"message": "ONDC App does not have a payment gateway."})
             return
 
-        # --- 2. Determine Staging Table ---
         table_name = None
         if _ch == 'mobile':
             if _app == 'mumbaione':
@@ -126,6 +113,7 @@ async def upload_files(
             yield _sse("error", {"message": "Could not resolve target database staging table."})
             return
 
+
         total_files     = len(file_payloads)
         parsed_dfs      = []
         processed_files = []
@@ -135,41 +123,19 @@ async def upload_files(
             "message": f"Files buffered in memory. Parsing {total_files} file(s)..."
         })
 
-        # --- 3. Parse files in parallel using ThreadPoolExecutor ---
         import concurrent.futures
 
-        def _parse_single_file(filename, buf):
-            buf.seek(0)
-            df = None
-            if _ch == 'mobile':
-                if _app == 'mumbaione':
-                    df = parse_mobile_mumbaione(buf)
-                elif _app == 'metroconnect3':
-                    df = parse_mobile_metroconnect3(buf)
-                elif _app == 'ondc':
-                    df = parse_mobile_ondc(buf)
-            elif _ch == 'payment_gateway':
-                pg_src = 'MumbaiOne' if _app == 'mumbaione' else 'MetroConnect3'
-                df = parse_payment_gateway(buf, pg_src)
-            elif _ch == 'afc':
-                afc_src = 'MumbaiOne' if _app == 'mumbaione' else ('ONDC' if _app == 'ondc' else 'MetroConnect3')
-                df = parse_afc(buf, afc_src)
-
-            if df is not None and not df.empty:
-                df['file_source'] = filename
-            return filename, df
-
-        # Use ThreadPoolExecutor to parse concurrently
+        # Use ProcessPoolExecutor to parse concurrently (bypasses GIL)
         max_workers = min(8, len(file_payloads))
         yield _sse("progress", {
             "progress": 5,
-            "message": f"Starting parallel parsing of {total_files} file(s) using {max_workers} threads..."
+            "message": f"Starting parallel parsing of {total_files} file(s) using {max_workers} processes..."
         })
 
         futures = []
-        with concurrent.futures.ThreadPoolExecutor(max_workers=max_workers) as executor:
-            for filename, buf in file_payloads:
-                futures.append(executor.submit(_parse_single_file, filename, buf))
+        with concurrent.futures.ProcessPoolExecutor(max_workers=max_workers) as executor:
+            for filename, file_bytes in file_payloads:
+                futures.append(executor.submit(parse_ingested_file, filename, file_bytes, app_name, channel))
 
             completed_count = 0
             for future in concurrent.futures.as_completed(futures):
@@ -177,7 +143,10 @@ async def upload_files(
                 base_progress = 5 + int((completed_count / total_files) * 55)
 
                 try:
-                    filename, df = future.result()
+                    filename, df, telemetry = future.result()
+                    if not telemetry["success"]:
+                        raise ValueError(telemetry["error"])
+
                     if df is not None and not df.empty:
                         parsed_dfs.append(df)
                         row_hint = f"{len(df):,} rows parsed"
@@ -199,7 +168,6 @@ async def upload_files(
                     yield _sse("error", {"message": f"Parsing error in file: {str(e)}"})
                     return
 
-        # --- 4. Validate at least one non-empty result ---
         if not parsed_dfs:
             yield _sse("error", {"message": "All uploaded files parsed into empty DataFrames. No records to ingest."})
             return
@@ -212,116 +180,34 @@ async def upload_files(
         try:
             combined_df = pd.concat(parsed_dfs, ignore_index=True)
 
-            # --- 6. Vectorised Deduplication ---
+            # In-memory batch self-deduplication (always run to prevent overlaps within the same batch upload)
+            _before_self = len(combined_df)
+            if table_name == 'stg_mobile_mumbaione' and 'pg_reference_no' in combined_df.columns:
+                combined_df = combined_df.drop_duplicates(subset=['pg_reference_no'], keep='first')
+            elif table_name == 'stg_mobile_metroconnect3' and 'ticket_no' in combined_df.columns:
+                combined_df = combined_df.drop_duplicates(subset=['ticket_no'], keep='first')
+            elif table_name == 'stg_mobile_ondc' and 'order_id' in combined_df.columns:
+                combined_df = combined_df.drop_duplicates(subset=['order_id'], keep='first')
+            elif table_name == 'stg_pg_transactions' and 'pgi_ref_no' in combined_df.columns and 'transaction_type' in combined_df.columns:
+                combined_df = combined_df.drop_duplicates(subset=['pgi_ref_no', 'transaction_type'], keep='first')
+            elif table_name == 'stg_afc_transactions' and 'slave_qr_no' in combined_df.columns:
+                combined_df = combined_df.drop_duplicates(subset=['slave_qr_no'], keep='first')
+
+            self_dups = _before_self - len(combined_df)
+            if self_dups > 0:
+                print(f"[BATCH SELF-DEDUP] Removed {self_dups:,} duplicate rows within the uploaded batch data.")
+
             if not clear_existing:
-                original_len = len(combined_df)
-
-                def _vec_clean(series: pd.Series) -> pd.Series:
-                    """
-                    Vectorised equivalent of normalize_key:
-                    strip → lowercase check → replace sentinel strings with NaN.
-                    Returns a str-typed Series with NaN where key is invalid.
-                    """
-                    s = series.astype(str).str.strip()
-                    return s.where(~s.str.lower().isin({'nan', 'none', ''}), other=pd.NA)
-
                 yield _sse("progress", {
                     "progress": 70,
-                    "message": f"Checking {original_len:,} records for duplicates against staging table..."
+                    "message": f"Checking {len(combined_df):,} records for duplicates against staging table..."
                 })
 
-                if table_name == 'stg_mobile_mumbaione' and 'pg_reference_no' in combined_df.columns:
-                    clean_col  = _vec_clean(combined_df['pg_reference_no'])
-                    clean_keys = clean_col.dropna().unique().tolist()
-                    existing   = {
-                        str(r[0]).strip()
-                        for r in db.execute(
-                            text("SELECT pg_reference_no FROM stg_mobile_mumbaione WHERE pg_reference_no IN :k"),
-                            {"k": tuple(clean_keys)}
-                        )
-                    } if clean_keys else set()
-                    if existing:
-                        sample = sorted(existing)[:20]
-                        print(f"[DUPLICATE] stg_mobile_mumbaione: {len(existing)} duplicate pg_reference_no value(s) found in DB.")
-                        print(f"[DUPLICATE] Sample keys (up to 20): {sample}")
-                    combined_df = combined_df[clean_col.notna() & ~clean_col.isin(existing)]
-
-                elif table_name == 'stg_mobile_metroconnect3' and 'ticket_no' in combined_df.columns:
-                    clean_col  = _vec_clean(combined_df['ticket_no'])
-                    clean_keys = clean_col.dropna().unique().tolist()
-                    existing   = {
-                        str(r[0]).strip()
-                        for r in db.execute(
-                            text("SELECT ticket_no FROM stg_mobile_metroconnect3 WHERE ticket_no IN :k"),
-                            {"k": tuple(clean_keys)}
-                        )
-                    } if clean_keys else set()
-                    if existing:
-                        sample = sorted(existing)[:20]
-                        print(f"[DUPLICATE] stg_mobile_metroconnect3: {len(existing)} duplicate ticket_no value(s) found in DB.")
-                        print(f"[DUPLICATE] Sample keys (up to 20): {sample}")
-                    combined_df = combined_df[clean_col.notna() & ~clean_col.isin(existing)]
-
-                elif table_name == 'stg_mobile_ondc' and 'order_id' in combined_df.columns:
-                    clean_col  = _vec_clean(combined_df['order_id'])
-                    clean_keys = clean_col.dropna().unique().tolist()
-                    existing   = {
-                        str(r[0]).strip()
-                        for r in db.execute(
-                            text("SELECT order_id FROM stg_mobile_ondc WHERE order_id IN :k"),
-                            {"k": tuple(clean_keys)}
-                        )
-                    } if clean_keys else set()
-                    if existing:
-                        sample = sorted(existing)[:20]
-                        print(f"[DUPLICATE] stg_mobile_ondc: {len(existing)} duplicate order_id value(s) found in DB.")
-                        print(f"[DUPLICATE] Sample keys (up to 20): {sample}")
-                    combined_df = combined_df[clean_col.notna() & ~clean_col.isin(existing)]
-
-                elif table_name == 'stg_pg_transactions' and 'pgi_ref_no' in combined_df.columns:
-                    clean_pgi  = _vec_clean(combined_df['pgi_ref_no'])
-                    clean_type = _vec_clean(combined_df['transaction_type'])
-                    clean_keys = clean_pgi.dropna().unique().tolist()
-                    existing   = {
-                        (str(r[0]).strip(), str(r[1]).strip())
-                        for r in db.execute(
-                            text("SELECT pgi_ref_no, transaction_type FROM stg_pg_transactions WHERE pgi_ref_no IN :k"),
-                            {"k": tuple(clean_keys)}
-                        )
-                    } if clean_keys else set()
-                    if existing:
-                        sample = sorted(existing)[:20]
-                        print(f"[DUPLICATE] stg_pg_transactions: {len(existing)} duplicate (pgi_ref_no, transaction_type) pair(s) found in DB.")
-                        print(f"[DUPLICATE] Sample pairs (up to 20): {sample}")
-                    combo = list(zip(clean_pgi.fillna(''), clean_type.fillna('')))
-                    mask  = pd.Series(
-                        [pair in existing for pair in combo],
-                        index=combined_df.index
-                    )
-                    combined_df = combined_df[clean_pgi.notna() & clean_type.notna() & ~mask]
-
-                elif table_name == 'stg_afc_transactions' and 'slave_qr_no' in combined_df.columns:
-                    clean_col  = _vec_clean(combined_df['slave_qr_no'])
-                    clean_keys = clean_col.dropna().unique().tolist()
-                    existing   = {
-                        str(r[0]).strip()
-                        for r in db.execute(
-                            text("SELECT slave_qr_no FROM stg_afc_transactions WHERE slave_qr_no IN :k"),
-                            {"k": tuple(clean_keys)}
-                        )
-                    } if clean_keys else set()
-                    if existing:
-                        sample = sorted(existing)[:20]
-                        print(f"[DUPLICATE] stg_afc_transactions: {len(existing)} duplicate slave_qr_no value(s) found in DB.")
-                        print(f"[DUPLICATE] Sample keys (up to 20): {sample}")
-                    combined_df = combined_df[clean_col.notna() & ~clean_col.isin(existing)]
-
-                dups    = original_len - len(combined_df)
-                if dups > 0:
-                    print(f"[DEDUP SUMMARY] {dups:,} row(s) removed total ({original_len:,} in \u2192 {len(combined_df):,} net new).")
-                else:
-                    print(f"[DEDUP SUMMARY] No duplicates found. All {original_len:,} row(s) are new.")
+                original_len = len(combined_df)
+                combined_df = deduplicate_dataframe(combined_df, table_name, db)
+                dups = original_len - len(combined_df)
                 dup_msg = f" ({dups:,} duplicates removed)" if dups > 0 else ""
+
                 if combined_df.empty:
                     yield _sse("error", {"message": "All records already present in staging. Ingestion skipped to prevent duplicates."})
                     return
@@ -331,8 +217,6 @@ async def upload_files(
                     "message": f"Deduplication complete{dup_msg}. {len(combined_df):,} net new records ready."
                 })
 
-
-            # --- 7. Revert previous log entries if clearing ---
             if clear_existing:
                 try:
                     db.execute(
@@ -349,7 +233,6 @@ async def upload_files(
                 "message": f"Bulk inserting {len(combined_df):,} rows into {table_name}..."
             })
 
-            # --- 8. Bulk Insert ---
             total_rows_loaded = bulk_insert_df(table_name, combined_df, truncate=clear_existing)
 
             yield _sse("progress", {
@@ -357,14 +240,12 @@ async def upload_files(
                 "message": f"✓ Inserted {total_rows_loaded:,} rows. Writing audit log..."
             })
 
-            # --- 9. Per-file row counts ---
             file_counts = {}
             if not combined_df.empty and 'file_source' in combined_df.columns:
                 file_counts = combined_df['file_source'].value_counts().to_dict()
             for item in processed_files:
                 item["rows_loaded"] = file_counts.get(item["filename"], 0)
 
-            # --- 10. Audit Log ---
             try:
                 pretty_app     = 'ONDC' if _app == 'ondc' else ('MumbaiOne' if _app == 'mumbaione' else 'MetroConnect3')
                 pretty_channel = _ch.replace('_', ' ').title()
@@ -385,7 +266,6 @@ async def upload_files(
                 db.rollback()
                 print(f"Warning: Failed to write to ingestion_logs: {le}")
 
-            # --- 11. Completion event ---
             yield _sse("completed", {
                 "progress": 100,
                 "message": f"✓ Success! Staged {total_files} file(s). Bulk inserted {total_rows_loaded:,} rows.",
@@ -412,176 +292,75 @@ async def upload_files(
     )
 
 @app.get("/api/reconcile/logs")
-def get_ingestion_logs(db: Session = Depends(get_db)):
+def get_ingestion_logs(db: Session = Depends(get_db)) -> List[dict]:
     """
     Fetches the upload audit logs from ingestion_logs.
     """
     try:
-        query = text("""
-            SELECT id, filename, app_name, channel, table_name, row_count, status, uploaded_at, reverted_at 
-            FROM ingestion_logs 
-            ORDER BY id DESC
-        """)
-        result = db.execute(query)
-        logs = []
-        for row in result:
-            logs.append({
-                "id": row[0],
-                "filename": row[1],
-                "app_name": row[2],
-                "channel": row[3],
-                "table_name": row[4],
-                "row_count": row[5],
-                "status": row[6],
-                "uploaded_at": row[7].isoformat() if row[7] else None,
-                "reverted_at": row[8].isoformat() if row[8] else None
-            })
-        return logs
+        return repository.get_ingestion_logs_from_db(db)
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Failed to fetch ingestion logs: {e}")
 
 @app.post("/api/reconcile/revert")
-def revert_upload(payload: RevertRequestSchema, db: Session = Depends(get_db)):
+def revert_upload(payload: RevertRequestSchema, db: Session = Depends(get_db)) -> dict:
     """
     Reverts a specific file ingestion transaction.
     Deletes the staged rows, updates the log status to 'REVERTED',
     and truncates the reconciliation results table.
     """
-    # 1. Fetch the log record
-    log_query = text("SELECT id, filename, table_name, status, row_count FROM ingestion_logs WHERE id = :log_id")
-    log_row = db.execute(log_query, {"log_id": payload.log_id}).first()
-    
-    if not log_row:
-        raise HTTPException(status_code=404, detail="Ingestion log record not found.")
-        
-    log_id, filename, table_name, status, row_count = log_row
-    
-    if status == 'REVERTED':
-        raise HTTPException(status_code=400, detail="This file upload has already been reverted.")
-        
     try:
-        # 2. Delete the transactions from the staging table
-        delete_query = text(f"DELETE FROM {table_name} WHERE file_source = :filename")
-        delete_res = db.execute(delete_query, {"filename": filename})
-        deleted_count = delete_res.rowcount
-        
-        # 3. Update the log status
-        update_query = text("""
-            UPDATE ingestion_logs 
-            SET status = 'REVERTED', reverted_at = CURRENT_TIMESTAMP 
-            WHERE id = :log_id
-        """)
-        db.execute(update_query, {"log_id": log_id})
-        
-        # 4. Truncate reconciliation_results to prevent stale ledger entries
-        db.execute(text("TRUNCATE TABLE reconciliation_results CASCADE"))
-        
-        # Commit the transaction
+        res = repository.revert_ingestion_in_db(db, payload.log_id)
+        if not res:
+            raise HTTPException(status_code=404, detail="Ingestion log record not found.")
+            
+        filename, deleted_count, table_name = res
         db.commit()
-        
         return {
             "success": True,
             "message": f"Successfully reverted file '{filename}'. Deleted {deleted_count} records from '{table_name}'. Ledger cleared.",
             "deleted_count": deleted_count,
             "table_name": table_name
         }
+    except ValueError as ve:
+        raise HTTPException(status_code=400, detail=str(ve))
     except Exception as e:
         db.rollback()
         raise HTTPException(status_code=500, detail=f"Rollback transaction failed: {e}")
 
-
 @app.post("/api/reconcile/manual-refund")
-def create_manual_refund(payload: ManualRefundRequestSchema, db: Session = Depends(get_db)):
+def create_manual_refund(payload: ManualRefundRequestSchema, db: Session = Depends(get_db)) -> dict:
     """
     Registers a manual refund in the manual_refunds table
     and updates the active status of the matched record in reconciliation_results.
     Supports records with original status of 'Liable for Refund' or 'Discrepancy'.
     """
     try:
-        # 1. Find the active record to identify the original status
-        lookup_query = text("""
-            SELECT recon_status, amount FROM reconciliation_results
-            WHERE (NULLIF(order_id, '') = NULLIF(:order_id, '') OR (NULLIF(order_id, '') IS NULL AND NULLIF(:order_id, '') IS NULL))
-              AND (NULLIF(ticket_no, '') = NULLIF(:ticket_no, '') OR (NULLIF(ticket_no, '') IS NULL AND NULLIF(:ticket_no, '') IS NULL))
-              AND recon_status IN ('Liable for Refund', 'Discrepancy')
-            LIMIT 1
-        """)
-        record = db.execute(lookup_query, {
-            "order_id": payload.order_id or '',
-            "ticket_no": payload.ticket_no or ''
-        }).first()
-
-        if not record:
-            raise HTTPException(
-                status_code=404, 
-                detail="No matching transaction in 'Liable for Refund' or 'Discrepancy' status found in active results."
-            )
-
-        orig_status, db_amount = record
-        actual_amount = payload.amount if payload.amount is not None else (float(db_amount) if db_amount is not None else 0.0)
-
-        # 2. Insert into manual_refunds table
-        insert_query = text("""
-            INSERT INTO manual_refunds (order_id, ticket_no, amount, original_status, updated_status, note)
-            VALUES (:order_id, :ticket_no, :amount, :original_status, 'Manually Refunded', :note)
-        """)
-        db.execute(insert_query, {
-            "order_id": payload.order_id or '',
-            "ticket_no": payload.ticket_no or '',
-            "amount": actual_amount,
-            "original_status": orig_status,
-            "note": payload.note
-        })
-
-        # 3. Update active reconciliation results
-        update_query = text("""
-            UPDATE reconciliation_results
-            SET recon_status = 'Manually Refunded',
-                notes = COALESCE(notes || ' | ', '') || 'Manual Refund: ' || :note
-            WHERE (NULLIF(order_id, '') = NULLIF(:order_id, '') OR (NULLIF(order_id, '') IS NULL AND NULLIF(:order_id, '') IS NULL))
-              AND (NULLIF(ticket_no, '') = NULLIF(:ticket_no, '') OR (NULLIF(ticket_no, '') IS NULL AND NULLIF(:ticket_no, '') IS NULL))
-              AND recon_status = :original_status
-        """)
-        update_res = db.execute(update_query, {
-            "order_id": payload.order_id or '',
-            "ticket_no": payload.ticket_no or '',
-            "original_status": orig_status,
-            "note": payload.note
-        })
-        
+        orig_status, updated_count = repository.create_manual_refund_in_db(db, payload)
         db.commit()
         return {
             "success": True,
             "message": f"Manual refund registered and applied successfully from original status '{orig_status}'.",
-            "updated_count": update_res.rowcount
+            "updated_count": updated_count
         }
-    except HTTPException:
+    except KeyError as ke:
         db.rollback()
-        raise
+        raise HTTPException(status_code=404, detail=str(ke))
     except Exception as e:
         db.rollback()
         raise HTTPException(status_code=500, detail=f"Failed to record manual refund: {e}")
 
-
 @app.get("/api/reconcile/manual-refunds/logs", response_model=List[ManualRefundLogSchema])
-def get_manual_refund_logs(db: Session = Depends(get_db)):
+def get_manual_refund_logs(db: Session = Depends(get_db)) -> List[dict]:
     """
     Fetches the full historical audit log of all manual tag updates.
     """
     try:
-        logs_query = text("""
-            SELECT id, order_id, ticket_no, amount, original_status, updated_status, note, updated_at
-            FROM manual_refunds
-            ORDER BY updated_at DESC
-        """)
-        results = db.execute(logs_query).mappings().all()
-        return results
+        return repository.get_manual_refunds_from_db(db)
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Failed to fetch manual refund audit logs: {e}")
 
-
 @app.post("/api/reconcile/run", response_model=ReconciliationRunResponse)
-def run_reconciliation():
+def run_reconciliation() -> ReconciliationRunResponse:
     """
     Triggers the SQL-based classification engine.
     Wipes previous results and builds fresh classified mappings.
@@ -597,13 +376,16 @@ def run_reconciliation():
         raise HTTPException(status_code=500, detail=f"Failed to execute reconciliation queries: {e}")
 
 @app.get("/api/reconcile/summary", response_model=List[ReconciliationSummary])
-def get_summaries():
+def get_summaries() -> List[ReconciliationSummary]:
     """
     Fetches the current reconciliation summaries from the database
     WITHOUT running the classification engine again.
+    Queries the materialized view directly.
     """
     try:
-        return get_reconciliation_summaries()
+        summaries = get_reconciliation_summaries()
+        from app.schemas import ReconciliationSummary as SummarySchema
+        return [SummarySchema(**s) for s in summaries]
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Failed to fetch summaries: {e}")
 
@@ -618,94 +400,26 @@ def get_results(
     page: int = Query(1, ge=1, description="Page number"),
     limit: int = Query(50, ge=1, le=500, description="Records per page"),
     db: Session = Depends(get_db)
-):
+) -> PaginatedReconciliationResults:
     """
     Fetches the paginated reconciliation list with filters.
     """
-    # 1. Base Query
-    base_query_str = "FROM reconciliation_results WHERE 1=1"
-    params = {}
-    
-    if app:
-        base_query_str += " AND app_source = :app"
-        params["app"] = app
-    if status:
-        base_query_str += " AND recon_status = :status"
-        params["status"] = status
-    if search:
-        search_clean = f"%{search.strip()}%"
-        base_query_str += " AND (order_id ILIKE :search OR ticket_no ILIKE :search OR pg_ref_no ILIKE :search)"
-        params["search"] = search_clean
-    if sources:
-        required = [s.strip() for s in sources.split(',') if s.strip()]
-        std_order = ['App', 'PG', 'AFC']
-        sorted_req = [s for s in std_order if s in required]
-        exact_sources = ",".join(sorted_req)
-        base_query_str += " AND data_sources = :exact_sources"
-        params["exact_sources"] = exact_sources
-
-    # Date Range filters
-    if from_date:
-        base_query_str += """ AND (
-            CASE
-                WHEN transaction_time ~ '^\\d{4}-\\d{2}-\\d{2}' THEN CAST(SUBSTRING(transaction_time FROM 1 FOR 10) AS DATE)
-                WHEN transaction_time ~ '^\\d{2}-\\d{2}-\\d{4}' THEN TO_DATE(SUBSTRING(transaction_time FROM 1 FOR 10), 'DD-MM-YYYY')
-                ELSE NULL
-            END
-        ) >= CAST(:from_date AS DATE)"""
-        params["from_date"] = from_date
-
-    if to_date:
-        base_query_str += """ AND (
-            CASE
-                WHEN transaction_time ~ '^\\d{4}-\\d{2}-\\d{2}' THEN CAST(SUBSTRING(transaction_time FROM 1 FOR 10) AS DATE)
-                WHEN transaction_time ~ '^\\d{2}-\\d{2}-\\d{4}' THEN TO_DATE(SUBSTRING(transaction_time FROM 1 FOR 10), 'DD-MM-YYYY')
-                ELSE NULL
-            END
-        ) <= CAST(:to_date AS DATE)"""
-        params["to_date"] = to_date
-
-
-    # 2. Count Total Matches
-    count_query = text(f"SELECT COUNT(*) {base_query_str}")
-    total = db.execute(count_query, params).scalar()
-
-    # 3. Paginate Results
-    offset = (page - 1) * limit
-    select_query_str = f"SELECT id, app_source, order_id, ticket_no, pg_ref_no, amount, transaction_time, recon_status, notes, data_sources, reconciled_at {base_query_str} ORDER BY id ASC LIMIT :limit OFFSET :offset"
-    
-    params["limit"] = limit
-    params["offset"] = offset
-    
-    result_set = db.execute(text(select_query_str), params)
-    records = []
-    
-    for row in result_set:
-        records.append(
-            ReconciliationRecordSchema(
-                id=row[0],
-                app_source=row[1],
-                order_id=row[2],
-                ticket_no=row[3],
-                pg_ref_no=row[4],
-                amount=float(row[5]) if row[5] is not None else None,
-                transaction_time=row[6],
-                recon_status=row[7],
-                notes=row[8],
-                data_sources=row[9],
-                reconciled_at=row[10]
-            )
+    try:
+        total, records = repository.get_paginated_results_from_db(
+            db, app, status, search, sources, from_date, to_date, page, limit
         )
-
-    return PaginatedReconciliationResults(
-        total=total,
-        page=page,
-        limit=limit,
-        results=records
-    )
+        records_schemas = [ReconciliationRecordSchema(**r) for r in records]
+        return PaginatedReconciliationResults(
+            total=total,
+            page=page,
+            limit=limit,
+            results=records_schemas
+        )
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Failed to fetch reconciliation results: {e}")
 
 @app.get("/api/db/status", response_model=DatabaseStatusSchema)
-def db_status(db: Session = Depends(get_db)):
+def db_status(db: Session = Depends(get_db)) -> DatabaseStatusSchema:
     """
     Checks the status of the database connection and returns row counts for all tables.
     """
